@@ -1,7 +1,8 @@
-﻿<#
- Ultimate Interactive Bug Bounty Recon Menu
- FINAL EDITION – AutoScope + Resume + HTML Report
- Date: Dec 29, 2025
+<#
+    Ultimate Recon Framework – Windows Edition
+    Purpose: Authorized Security Testing / Bug Bounty / Pentesting ONLY
+    Version: 1.0.0
+    Date: 2025
 #>
 
 [CmdletBinding()]
@@ -9,226 +10,174 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$Domain,
 
-    [string]$Wordlist = "wordlists\dir-medium.txt"
+    [string]$Wordlist = "wordlists\dir-medium.txt",
+
+    [string]$NucleiSeverity = "critical,high,medium",
+
+    [switch]$DryRun
 )
 
-# ─────────────────────────────── Setup ───────────────────────────────
-$OutputDir = "$Domain-recon"
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-Set-Location $OutputDir
-
-function Test-Tool($n) { $null -ne (Get-Command $n -ErrorAction SilentlyContinue) }
-function Pause { Read-Host "`nPress Enter to continue..." | Out-Null }
-
-# Resume helpers
-function Step-Done($n) { Test-Path ".done_$n" }
-function Mark-Step($n) { New-Item ".done_$n" -ItemType File -Force | Out-Null }
-
-# Scope filter
-function Filter-Scope {
-    param($InputFile, $OutputFile)
-    if (-not (Test-Path $InputFile)) { return }
-    Get-Content $InputFile |
-        Where-Object { $_ -match "([a-zA-Z0-9\-]+\.)*$([regex]::Escape($Domain))" } |
-        Sort-Object -Unique |
-        Out-File $OutputFile -Encoding utf8
+# Domain validation
+if ($Domain -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$') {
+    Write-Host "ERROR: Invalid domain format." -ForegroundColor Red
+    exit 1
 }
 
-# HTML report
+# Legal banner
+Clear-Host
+Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
+Write-Host "              AUTHORIZED SECURITY TESTING ONLY" -ForegroundColor Yellow
+Write-Host " Target: $Domain" -ForegroundColor White
+Write-Host " This tool must only be used on targets you own or have" -ForegroundColor Yellow
+Write-Host " explicit written permission to test." -ForegroundColor Yellow
+Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
+Read-Host "Press Enter to confirm authorization" | Out-Null
+
+# Configuration
+$Config = @{
+    HttpxRate      = 120
+    NucleiRate     = 30
+    FFUFThreads    = 40
+    KatanaDepth    = 3
+    MaxTargets     = 6
+    NaabuPorts     = 1000
+    LogFile        = "recon.log"
+}
+
+# Setup
+$OutDir = "$Domain-recon"
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+Set-Location $OutDir
+
+# Helpers
+function Log {
+    param($Msg, $Lvl = "INFO")
+    $t = Get-Date -Format "HH:mm:ss"
+    $l = "[$t][$Lvl] $Msg"
+    Write-Host $l
+    $l | Out-File $Config.LogFile -Append -Encoding utf8
+}
+
+function Tool-Exists { param($n) $null -ne (Get-Command $n -ErrorAction SilentlyContinue) }
+
+function Execute {
+    param($Cmd)
+    if ($DryRun) { Log "[DRY-RUN] $Cmd" "DRY"; return }
+    Log "RUN → $Cmd"
+    Invoke-Expression $Cmd
+}
+
+function Step-Done { param($n) Test-Path ".done_$n" }
+function Mark-Done { param($n) New-Item ".done_$n" -ItemType File -Force | Out-Null }
+
+function Require-File {
+    param($f, $s)
+    if (-not (Test-Path $f)) { Log "Missing $f → run step $s first" "ERROR"; return $false }
+    return $true
+}
+
+# Tool check
+$Tools = @("subfinder","amass","httpx","gau","waybackurls","katana","ffuf","nuclei","dalfox","naabu","tlsx","puredns","dnsx")
+foreach ($t in $Tools) {
+    if (-not (Tool-Exists $t)) { Log "$t not found in PATH" "WARN" }
+}
+
+# Steps
+function Step-Subdomains {
+    if (Step-Done "subs") { Log "Subdomains already completed"; return }
+    Execute "subfinder -d $Domain -all -silent -o subs_subfinder.txt"
+    Execute "amass enum -passive -d $Domain -o subs_amass.txt"
+    Get-Content subs_*.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File all_subs.txt -Encoding utf8
+    if (Tool-Exists "puredns") {
+        Execute "puredns resolve all_subs.txt -q -w resolved.txt" 2>$null
+        if (Test-Path resolved.txt) { Execute "dnsx -l resolved.txt -silent -o scoped_subs.txt" }
+        else { Copy-Item all_subs.txt scoped_subs.txt }
+    } else { Copy-Item all_subs.txt scoped_subs.txt }
+    Mark-Done "subs"
+}
+
+function Step-LiveHosts {
+    if (-not (Require-File "scoped_subs.txt" "1")) { return }
+    if (Step-Done "live") { return }
+    Execute "httpx -l scoped_subs.txt -rl $($Config.HttpxRate) -silent -o live_urls.txt"
+    Execute "tlsx -l live_urls.txt -silent -o tls.txt" 2>$null
+    Mark-Done "live"
+}
+
+function Step-URLCollection {
+    if (-not (Require-File "live_urls.txt" "2")) { return }
+    if (Step-Done "urls") { return }
+    if (Tool-Exists "gau") { Execute "gau $Domain --subs -o gau.txt" }
+    if (Tool-Exists "waybackurls") { Execute "waybackurls $Domain -o wayback.txt" }
+    if (Tool-Exists "katana") { Execute "katana -list live_urls.txt -depth $($Config.KatanaDepth) -silent -o katana.txt" }
+    Get-Content gau.txt,wayback.txt,katana.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File scoped_urls.txt -Encoding utf8
+    Mark-Done "urls"
+}
+
+function Step-DirectoryBrute {
+    if (-not (Require-File "live_urls.txt" "2")) { return }
+    New-Item ffuf_results -ItemType Directory -Force | Out-Null
+    Get-Content live_urls.txt | Select-Object -First $Config.MaxTargets | ForEach-Object {
+        $url = $_.Trim()
+        if (-not $url.EndsWith("/")) { $url += "/" }
+        $safe = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($url)) -replace '=',''
+        Execute "ffuf -u `"$url`FUZZ`" -w $Wordlist -t $($Config.FFUFThreads) -mc 200,301,302,307,308 -timeout 10 -o ffuf_results/ffuf_$safe.json"
+    }
+}
+
+function Step-NucleiScan {
+    if (-not (Require-File "live_urls.txt" "2")) { return }
+    Execute "nuclei -l live_urls.txt -rate-limit $($Config.NucleiRate) -severity $NucleiSeverity -o nuclei_results.txt"
+}
+
+function Step-XSSScan {
+    if (-not (Tool-Exists "dalfox")) { Log "dalfox not available" "WARN"; return }
+    if (-not (Require-File "scoped_urls.txt" "3")) { return }
+    Get-Content scoped_urls.txt | dalfox pipe --only-poc r --no-color -o dalfox_results.txt
+}
+
+function Step-PortScan {
+    if (-not (Require-File "scoped_subs.txt" "1")) { return }
+    Execute "naabu -list scoped_subs.txt -top-ports $($Config.NaabuPorts) -silent -o ports.txt"
+}
+
 function Generate-HTMLReport {
-    $sections = @(
-        @{Title="Subdomains"; File="scoped_subs.txt"},
-        @{Title="Live Hosts"; File="live_urls.txt"},
-        @{Title="URLs"; File="scoped_urls.txt"},
-        @{Title="Nuclei Findings"; File="nuclei_results.txt"},
-        @{Title="XSS (Dalfox)"; File="dalfox.txt"},
-        @{Title="JS Secrets"; File="js_secrets.txt"},
-        @{Title="Takeovers"; File="takeover.txt"},
-        @{Title="Open Ports"; File="ports.txt"}
-    )
-
-$html = @"
-<html>
-<head>
-<title>Recon Report - $Domain</title>
-<style>
-body { font-family: Consolas; background:#111; color:#eee; }
-h1 { color:#00ffcc; }
-h2 { color:#ffaa00; }
-pre { background:#1e1e1e; padding:10px; overflow:auto; }
-</style>
-</head>
-<body>
-<h1>Recon Report - $Domain</h1>
-<p>Generated: $(Get-Date)</p>
-"@
-
-    foreach ($s in $sections) {
-        if (Test-Path $s.File) {
-            $c = Get-Content $s.File -ErrorAction SilentlyContinue | Select-Object -First 500
-            $html += "<h2>$($s.Title)</h2><pre>$($c -join "`n")</pre>"
+    Log "Generating HTML report..."
+    $files = @("scoped_subs.txt","live_urls.txt","scoped_urls.txt","nuclei_results.txt","dalfox_results.txt","ports.txt","tls.txt")
+    $html = "<html><head><meta charset='utf-8'><title>Recon Report - $Domain</title><style>body{background:#0d1117;color:#c9d1d9;font-family:Consolas;padding:20px}h1{color:#58a6ff;text-align:center}h2{color:#f0883e}pre{background:#010409;padding:15px;border-radius:8px;max-height:500px;overflow:auto}</style></head><body><h1>Recon Report - $Domain</h1><p>Generated: $(Get-Date)</p>"
+    foreach ($f in $files) {
+        if (Test-Path $f) {
+            $c = Get-Content $f -ErrorAction SilentlyContinue
+            $html += "<h2>$f ($($c.Count) lines)</h2><pre>$($c | Select-Object -First 300 | Out-String)</pre>"
         }
     }
-
     $html += "</body></html>"
-    $html | Out-File "report.html" -Encoding utf8
+    $html | Out-File report.html -Encoding utf8
+    Log "Report saved → report.html"
 }
 
-# ─────────────────────────────── Menu ───────────────────────────────
+# Menu
 while ($true) {
     Clear-Host
-    Write-Host "════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host " Ultimate Recon Menu → $Domain" -ForegroundColor White
-    Write-Host "════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host "1  Subdomain Enumeration"
-    Write-Host "2  Live Hosts (httpx)"
-    Write-Host "3  URL Collection"
-    Write-Host "4  Directory Bruteforce (ffuf)"
-    Write-Host "5  Nuclei Scan"
-    Write-Host "6  XSS Scan (dalfox)"
-    Write-Host "7  JavaScript Analysis"
-    Write-Host "8  Screenshots (gowitness)"
-    Write-Host "9  Subdomain Takeover"
-    Write-Host "10 Port Scan (naabu)"
-    Write-Host "11 Parameter Discovery (arjun)"
-    Write-Host "12 GF Pattern Matching"
-    Write-Host "13 Generate HTML Report"
-    Write-Host "0  Summary"
-    Write-Host "x  Exit"
+    Write-Host "════════════════════════════════════════════════" -ForegroundColor Magenta
+    Write-Host " Ultimate Recon Framework – $Domain" -ForegroundColor White
+    Write-Host "════════════════════════════════════════════════" -ForegroundColor Magenta
+    Write-Host "1  Subdomains    2  Live Hosts    3  URLs"
+    Write-Host "4  FFUF          5  Nuclei        6  XSS"
+    Write-Host "7  Ports         13 Report        x  Exit"
+    Write-Host "════════════════════════════════════════════════" -ForegroundColor Magenta
+
     $c = Read-Host "`nSelect"
-
-switch ($c) {
-
-"1" {
-    if (-not (Step-Done "subs")) {
-        subfinder -d $Domain -all -silent -o subs_subfinder.txt
-        amass enum -passive -d $Domain -o subs_amass.txt
-        if ($env:CHAOS_KEY) { chaos -d $Domain -silent -o subs_chaos.txt }
-
-        Get-Content subs_*.txt | Sort-Object -Unique | Out-File all_subs.txt
-        Filter-Scope all_subs.txt scoped_subs.txt
-        Mark-Step "subs"
+    switch ($c) {
+        "1"  { Step-Subdomains }
+        "2"  { Step-LiveHosts }
+        "3"  { Step-URLCollection }
+        "4"  { Step-DirectoryBrute }
+        "5"  { Step-NucleiScan }
+        "6"  { Step-XSSScan }
+        "7"  { Step-PortScan }
+        "13" { Generate-HTMLReport }
+        "x"  { break }
+        default { Write-Host "Invalid option" -ForegroundColor Red; Pause }
     }
-    Pause
-}
-
-"2" {
-    if (-not (Step-Done "live")) {
-        httpx -l scoped_subs.txt -silent -o live_urls.txt
-        httpx -l scoped_subs.txt -title -status-code -tech-detect -silent -o live_info.txt
-        Mark-Step "live"
-    }
-    Pause
-}
-
-"3" {
-    if (-not (Step-Done "urls")) {
-        if (Test-Tool "gau") { gau $Domain --subs | Out-File gau.txt }
-        if (Test-Tool "waybackurls") { waybackurls $Domain | Out-File wayback.txt }
-        if (Test-Tool "katana") { katana -list live_urls.txt -depth 4 -silent -o katana.txt }
-
-        Get-Content gau.txt,wayback.txt,katana.txt -ErrorAction SilentlyContinue |
-            Sort-Object -Unique | Out-File all_urls.txt
-
-        Filter-Scope all_urls.txt scoped_urls.txt
-        Mark-Step "urls"
-    }
-    Pause
-}
-
-"4" {
-    New-Item -ItemType Directory -Force ffuf_results | Out-Null
-    Get-Content live_urls.txt | Select-Object -First 8 | ForEach-Object {
-        $safe = ($_ -replace 'https?://','' -replace '[^a-zA-Z0-9]','_')
-        ffuf -u "$_/FUZZ" -w $Wordlist -mc 200,301,302,307,308 -silent `
-            -o "ffuf_results/$safe.json"
-    }
-    Pause
-}
-
-"5" {
-    nuclei -update-templates
-    nuclei -l live_urls.txt -severity critical,high,medium -silent |
-        Out-File nuclei_results.txt
-    Pause
-}
-
-"6" {
-    Get-Content live_urls.txt |
-        dalfox pipe --skip-bav --only-poc --no-color |
-        Out-File dalfox.txt
-    Pause
-}
-
-"7" {
-    katana -list live_urls.txt -extension js -silent | Out-File js_katana.txt
-    gau $Domain --subs | Select-String "\.js" -Raw | Out-File js_gau.txt
-    waybackurls $Domain | Select-String "\.js" -Raw | Out-File js_wayback.txt
-
-    Get-Content js_*.txt | Sort-Object -Unique | Out-File js_files.txt
-
-    if (Test-Path "C:\Tools\LinkFinder\linkfinder.py") {
-        Get-Content js_files.txt |
-            ForEach-Object { python C:\Tools\LinkFinder\linkfinder.py -i $_ -o cli } |
-            Sort-Object -Unique | Out-File js_endpoints.txt
-    }
-
-    if (Test-Path "C:\Tools\SecretFinder\SecretFinder.py") {
-        Get-Content js_files.txt |
-            ForEach-Object { python C:\Tools\SecretFinder\SecretFinder.py -i $_ -o cli } |
-            Sort-Object -Unique | Out-File js_secrets.txt
-    }
-    Pause
-}
-
-"8" {
-    gowitness file -f live_urls.txt --threads 20 --timeout 20
-    Pause
-}
-
-"9" {
-    nuclei -l scoped_subs.txt -t takeovers -silent | Out-File takeover.txt
-    Pause
-}
-
-"10" {
-    naabu -list scoped_subs.txt -top-ports 1000 -silent | Out-File ports.txt
-    Pause
-}
-
-"11" {
-    New-Item -ItemType Directory -Force arjun_results | Out-Null
-    Get-Content scoped_urls.txt | Select-Object -First 20 | ForEach-Object {
-        $safe = ($_ -replace '[^a-zA-Z0-9]','_')
-        $safe = $safe.Substring(0,[Math]::Min(40,$safe.Length))
-        arjun -u $_ -oT "arjun_results/$safe.txt"
-    }
-    Pause
-}
-
-"12" {
-    New-Item -ItemType Directory -Force gf_matches | Out-Null
-    foreach ($p in "xss","ssrf","lfi","rce","redirect","takeover","s3-buckets","debug-pages") {
-        gf $p scoped_urls.txt | Out-File "gf_matches/$p.txt"
-    }
-    Pause
-}
-
-"13" {
-    Generate-HTMLReport
-    Write-Host "HTML report generated → report.html" -ForegroundColor Green
-    Pause
-}
-
-"0" {
-    Get-ChildItem *.txt | ForEach-Object {
-        Write-Host "$($_.Name): $((Get-Content $_).Count) lines"
-    }
-    Pause
-}
-
-"x" { return }
-default { Pause }
-
-}
 }

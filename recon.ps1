@@ -1,8 +1,8 @@
 <#
-    Ultimate Recon Framework – Windows Edition
-    Purpose: Authorized Security Testing / Bug Bounty / Pentesting ONLY
+    Ultimate Recon Framework – Windows Edition (Fast & Safe)
     Version: 1.0.0
-    Date: 2025
+    Purpose: Authorized Security Testing / Bug Bounty / Pentesting ONLY
+    Optimized for speed and stability on Windows
 #>
 
 [CmdletBinding()]
@@ -33,13 +33,19 @@ Write-Host " explicit written permission to test." -ForegroundColor Yellow
 Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
 Read-Host "Press Enter to confirm authorization" | Out-Null
 
-# Configuration
+# Safe & Fast Configuration
 $Config = @{
-    HttpxRate      = 120
-    NucleiRate     = 30
+    HttpxRate      = 120          # درخواست در ثانیه
+    HttpxTimeout   = 15           # ثانیه
+    HttpxRetries   = 2
+    NucleiRate     = 30           # درخواست در ثانیه
+    NucleiTimeout  = 15
     FFUFThreads    = 40
+    FFUFTimeout    = 10
     KatanaDepth    = 3
     MaxTargets     = 6
+    AmassTimeout   = 15           # دقیقه
+    AmassMaxQueries = 2000
     NaabuPorts     = 1000
     LogFile        = "recon.log"
 }
@@ -82,62 +88,82 @@ foreach ($t in $Tools) {
     if (-not (Tool-Exists $t)) { Log "$t not found in PATH" "WARN" }
 }
 
-# Steps
+# Steps with time/rate limits
+
 function Step-Subdomains {
     if (Step-Done "subs") { Log "Subdomains already completed"; return }
+    Log "Starting fast subdomain enumeration..."
+
     Execute "subfinder -d $Domain -all -silent -o subs_subfinder.txt"
-    Execute "amass enum -passive -d $Domain -o subs_amass.txt"
+
+    # Amass with strict limits for speed and safety
+    Execute "amass enum -passive -norecursive -timeout $($Config.AmassTimeout) -max-dns-queries $($Config.AmassMaxQueries) -d $Domain -o subs_amass.txt"
+
     Get-Content subs_*.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File all_subs.txt -Encoding utf8
+
     if (Tool-Exists "puredns") {
         Execute "puredns resolve all_subs.txt -q -w resolved.txt" 2>$null
         if (Test-Path resolved.txt) { Execute "dnsx -l resolved.txt -silent -o scoped_subs.txt" }
         else { Copy-Item all_subs.txt scoped_subs.txt }
     } else { Copy-Item all_subs.txt scoped_subs.txt }
+
     Mark-Done "subs"
+    $count = (Get-Content scoped_subs.txt -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
+    Log "$count in-scope subdomains found"
 }
 
 function Step-LiveHosts {
     if (-not (Require-File "scoped_subs.txt" "1")) { return }
     if (Step-Done "live") { return }
-    Execute "httpx -l scoped_subs.txt -rl $($Config.HttpxRate) -silent -o live_urls.txt"
+    Log "Probing live hosts (safe & fast)..."
+    Execute "httpx -l scoped_subs.txt -rl $($Config.HttpxRate) -timeout $($Config.HttpxTimeout) -retries $($Config.HttpxRetries) -title -tech-detect -silent -o live_urls.txt"
     Execute "tlsx -l live_urls.txt -silent -o tls.txt" 2>$null
     Mark-Done "live"
+    $count = (Get-Content live_urls.txt -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
+    Log "$count live hosts detected"
 }
 
 function Step-URLCollection {
     if (-not (Require-File "live_urls.txt" "2")) { return }
     if (Step-Done "urls") { return }
+    Log "Collecting URLs (fast mode)..."
     if (Tool-Exists "gau") { Execute "gau $Domain --subs -o gau.txt" }
     if (Tool-Exists "waybackurls") { Execute "waybackurls $Domain -o wayback.txt" }
     if (Tool-Exists "katana") { Execute "katana -list live_urls.txt -depth $($Config.KatanaDepth) -silent -o katana.txt" }
     Get-Content gau.txt,wayback.txt,katana.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File scoped_urls.txt -Encoding utf8
     Mark-Done "urls"
+    $count = (Get-Content scoped_urls.txt -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
+    Log "$count URLs collected"
 }
 
 function Step-DirectoryBrute {
     if (-not (Require-File "live_urls.txt" "2")) { return }
     New-Item ffuf_results -ItemType Directory -Force | Out-Null
+    Log "Directory brute-force on top $($Config.MaxTargets) hosts..."
     Get-Content live_urls.txt | Select-Object -First $Config.MaxTargets | ForEach-Object {
         $url = $_.Trim()
         if (-not $url.EndsWith("/")) { $url += "/" }
         $safe = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($url)) -replace '=',''
-        Execute "ffuf -u `"$url`FUZZ`" -w $Wordlist -t $($Config.FFUFThreads) -mc 200,301,302,307,308 -timeout 10 -o ffuf_results/ffuf_$safe.json"
+        Execute "ffuf -u `"$url`FUZZ`" -w $Wordlist -t $($Config.FFUFThreads) -timeout $($Config.FFUFTimeout) -mc 200,301,302,307,308 -o ffuf_results/ffuf_$safe.json"
     }
 }
 
 function Step-NucleiScan {
     if (-not (Require-File "live_urls.txt" "2")) { return }
-    Execute "nuclei -l live_urls.txt -rate-limit $($Config.NucleiRate) -severity $NucleiSeverity -o nuclei_results.txt"
+    Log "Running fast Nuclei scan..."
+    Execute "nuclei -l live_urls.txt -rate-limit $($Config.NucleiRate) -severity $NucleiSeverity -timeout $($Config.NucleiTimeout) -retries 1 -o nuclei_results.txt"
 }
 
 function Step-XSSScan {
     if (-not (Tool-Exists "dalfox")) { Log "dalfox not available" "WARN"; return }
     if (-not (Require-File "scoped_urls.txt" "3")) { return }
-    Get-Content scoped_urls.txt | dalfox pipe --only-poc r --no-color -o dalfox_results.txt
+    Log "Running XSS scan..."
+    Get-Content scoped_urls.txt | dalfox pipe --only-poc r --delay 200 --no-color -o dalfox_results.txt
 }
 
 function Step-PortScan {
     if (-not (Require-File "scoped_subs.txt" "1")) { return }
+    Log "Port scanning..."
     Execute "naabu -list scoped_subs.txt -top-ports $($Config.NaabuPorts) -silent -o ports.txt"
 }
 

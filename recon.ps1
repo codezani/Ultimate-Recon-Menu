@@ -35,16 +35,16 @@ Read-Host "Press Enter to confirm authorization" | Out-Null
 
 # Safe & Fast Configuration
 $Config = @{
-    HttpxRate      = 120          # درخواست در ثانیه
-    HttpxTimeout   = 15           # ثانیه
+    HttpxRate      = 120
+    HttpxTimeout   = 15
     HttpxRetries   = 2
-    NucleiRate     = 30           # درخواست در ثانیه
+    NucleiRate     = 30
     NucleiTimeout  = 15
     FFUFThreads    = 40
     FFUFTimeout    = 10
     KatanaDepth    = 3
     MaxTargets     = 6
-    AmassTimeout   = 15           # دقیقه
+    AmassTimeout   = 15
     AmassMaxQueries = 2000
     NaabuPorts     = 1000
     LogFile        = "recon.log"
@@ -96,7 +96,6 @@ function Step-Subdomains {
 
     Execute "subfinder -d $Domain -all -silent -o subs_subfinder.txt"
 
-    # Amass with strict limits for speed and safety
     Execute "amass enum -passive -norecursive -timeout $($Config.AmassTimeout) -max-dns-queries $($Config.AmassMaxQueries) -d $Domain -o subs_amass.txt"
 
     Get-Content subs_*.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File all_subs.txt -Encoding utf8
@@ -128,7 +127,7 @@ function Step-URLCollection {
     if (Step-Done "urls") { return }
     Log "Collecting URLs (fast mode)..."
     if (Tool-Exists "gau") { Execute "gau $Domain --subs -o gau.txt" }
-    if (Tool-Exists "waybackurls") { Execute "waybackurls $Domain --o wayback.txt" }
+    if (Tool-Exists "waybackurls") { Execute "waybackurls $Domain -o wayback.txt" }
     if (Tool-Exists "katana") { Execute "katana -list live_urls.txt -depth $($Config.KatanaDepth) -silent -o katana.txt" }
     Get-Content gau.txt,wayback.txt,katana.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File scoped_urls.txt -Encoding utf8
     Mark-Done "urls"
@@ -138,6 +137,29 @@ function Step-URLCollection {
 
 function Step-DirectoryBrute {
     if (-not (Require-File "live_urls.txt" "2")) { return }
+
+    # چک کردن وجود wordlist با پیام واضح روی صفحه
+    if (-not (Test-Path $Wordlist)) {
+        Clear-Host
+        Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
+        Write-Host "                   WORDLIST NOT FOUND!" -ForegroundColor Red
+        Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
+        Write-Host "Required wordlist path: $Wordlist" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Please create the folder and download a wordlist:" -ForegroundColor White
+        Write-Host "   1. New-Item -ItemType Directory -Force -Path wordlists" -ForegroundColor Cyan
+        Write-Host "   2. Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-directories.txt' -OutFile 'wordlists\dir-medium.txt'" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Or place your own wordlist at the above path." -ForegroundColor White
+        Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
+        Read-Host "Press Enter after fixing the wordlist to continue"
+        # دوباره چک کن
+        if (-not (Test-Path $Wordlist)) {
+            Log "Wordlist still missing – aborting FFUF step" "ERROR"
+            return
+        }
+    }
+
     New-Item ffuf_results -ItemType Directory -Force | Out-Null
     Log "Directory brute-force on top $($Config.MaxTargets) hosts..."
     Get-Content live_urls.txt | Select-Object -First $Config.MaxTargets | ForEach-Object {
@@ -182,9 +204,10 @@ function Generate-HTMLReport {
     Log "Report saved → report.html"
 }
 
-# Menu
+# Menu – Clear-Host فقط یک بار در ابتدای حلقه
 while ($true) {
-    Clear-Host
+    Clear-Host  # صفحه پاک می‌شه و منو تازه نشون داده می‌شه
+
     Write-Host "════════════════════════════════════════════════" -ForegroundColor Magenta
     Write-Host " Ultimate Recon Framework – $Domain" -ForegroundColor White
     Write-Host "════════════════════════════════════════════════" -ForegroundColor Magenta
@@ -203,7 +226,15 @@ while ($true) {
         "6"  { Step-XSSScan }
         "7"  { Step-PortScan }
         "13" { Generate-HTMLReport }
-        "x"  { break }
+        "x"  { 
+            Log "Recon session completed."
+            Write-Host "`nRecon finished! Results in: $OutDir" -ForegroundColor Green
+            break 
+        }
         default { Write-Host "Invalid option" -ForegroundColor Red; Pause }
     }
+
+    # بعد از هر مرحله، پیام‌ها روی صفحه می‌مونن تا کاربر ببینه
+    Write-Host "`nPress Enter to return to menu..." -ForegroundColor Cyan
+    Read-Host | Out-Null
 }

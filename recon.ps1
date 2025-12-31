@@ -126,7 +126,7 @@ function Step-URLCollection {
     if (-not (Require-File "live_urls.txt" "2")) { return }
     if (Step-Done "urls") { return }
     Log "Collecting URLs (fast mode)..."
-    if (Tool-Exists "gau") { Execute "gau $Domain --subs -o gau.txt" }
+    if (Tool-Exists "gau") { Execute "gau $Domain --subs --o gau.txt" }
     if (Tool-Exists "waybackurls") { Execute "waybackurls $Domain -o wayback.txt" }
     if (Tool-Exists "katana") { Execute "katana -list live_urls.txt -depth $($Config.KatanaDepth) -silent -o katana.txt" }
     Get-Content gau.txt,wayback.txt,katana.txt -ErrorAction SilentlyContinue | Sort-Object -Unique | Out-File scoped_urls.txt -Encoding utf8

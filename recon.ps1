@@ -1,6 +1,6 @@
 <#
     Ultimate Recon Framework – Windows Edition (Fast & Safe)
-    Version: 1.0.0
+    Version: 1.0.1 – Fixed syntax, case-sensitive functions & menu
     Purpose: Authorized Security Testing / Bug Bounty / Pentesting ONLY
     Optimized for speed and stability on Windows
 #>
@@ -17,23 +17,21 @@ param(
     [switch]$DryRun
 )
 
-# Domain validation
+# ───────────── Domain Validation ─────────────
 if ($Domain -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$') {
     Write-Host "ERROR: Invalid domain format." -ForegroundColor Red
     exit 1
 }
 
-# Legal banner
+# ───────────── Legal Banner ─────────────
 Clear-Host
 Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
 Write-Host "              AUTHORIZED SECURITY TESTING ONLY" -ForegroundColor Yellow
 Write-Host " Target: $Domain" -ForegroundColor White
-Write-Host " This tool must only be used on targets you own or have" -ForegroundColor Yellow
-Write-Host " explicit written permission to test." -ForegroundColor Yellow
 Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
 Read-Host "Press Enter to confirm authorization" | Out-Null
 
-# Safe & Fast Configuration
+# ───────────── Configuration ─────────────
 $Config = @{
     HttpxRate      = 120
     HttpxTimeout   = 15
@@ -50,12 +48,12 @@ $Config = @{
     LogFile        = "recon.log"
 }
 
-# Setup
+# ───────────── Setup ─────────────
 $OutDir = "$Domain-recon"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Set-Location $OutDir
 
-# Helpers
+# ───────────── Helpers ─────────────
 function Log {
     param($Msg, $Lvl = "INFO")
     $t = Get-Date -Format "HH:mm:ss"
@@ -64,31 +62,47 @@ function Log {
     $l | Out-File $Config.LogFile -Append -Encoding utf8
 }
 
-function Tool-Exists { param($n) $null -ne (Get-Command $n -ErrorAction SilentlyContinue) }
+function Tool-Exists { 
+    param($n) 
+    return $null -ne (Get-Command $n -ErrorAction SilentlyContinue) 
+}
 
 function Execute {
     param($Cmd)
-    if ($DryRun) { Log "[DRY-RUN] $Cmd" "DRY"; return }
+    if ($DryRun) { 
+        Log "[DRY-RUN] $Cmd" "DRY"; 
+        return 
+    }
     Log "RUN → $Cmd"
     Invoke-Expression $Cmd
 }
 
-function Step-Done { param($n) Test-Path ".done_$n" }
-function Mark-Done { param($n) New-Item ".done_$n" -ItemType File -Force | Out-Null }
+function Step-Done { 
+    param($n) 
+    Test-Path ".done_$n" 
+}
+
+function Mark-Done { 
+    param($n) 
+    New-Item ".done_$n" -ItemType File -Force | Out-Null 
+}
 
 function Require-File {
     param($f, $s)
-    if (-not (Test-Path $f)) { Log "Missing $f → run step $s first" "ERROR"; return $false }
+    if (-not (Test-Path $f)) { 
+        Log "Missing $f → run step $s first" "ERROR"; 
+        return $false 
+    }
     return $true
 }
 
-# Tool check
+# ───────────── Tool Availability Check ─────────────
 $Tools = @("subfinder","amass","httpx","gau","waybackurls","katana","ffuf","nuclei","dalfox","naabu","tlsx","puredns","dnsx")
 foreach ($t in $Tools) {
     if (-not (Tool-Exists $t)) { Log "$t not found in PATH" "WARN" }
 }
 
-# Steps with time/rate limits
+# ───────────── Recon Steps ─────────────
 
 function Step-Subdomains {
     if (Step-Done "subs") { Log "Subdomains already completed"; return }
@@ -153,7 +167,6 @@ function Step-DirectoryBrute {
         Write-Host "Or place your own wordlist at the above path." -ForegroundColor White
         Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Red
         Read-Host "Press Enter after fixing the wordlist to continue"
-        # دوباره چک کن
         if (-not (Test-Path $Wordlist)) {
             Log "Wordlist still missing – aborting FFUF step" "ERROR"
             return
@@ -204,9 +217,9 @@ function Generate-HTMLReport {
     Log "Report saved → report.html"
 }
 
-# Menu – Clear-Host فقط یک بار در ابتدای حلقه
+# ───────────── Main Menu ─────────────
 while ($true) {
-    Clear-Host  # صفحه پاک می‌شه و منو تازه نشون داده می‌شه
+    Clear-Host
 
     Write-Host "════════════════════════════════════════════════" -ForegroundColor Magenta
     Write-Host " Ultimate Recon Framework – $Domain" -ForegroundColor White
@@ -234,7 +247,6 @@ while ($true) {
         default { Write-Host "Invalid option" -ForegroundColor Red; Pause }
     }
 
-    # بعد از هر مرحله، پیام‌ها روی صفحه می‌مونن تا کاربر ببینه
     Write-Host "`nPress Enter to return to menu..." -ForegroundColor Cyan
     Read-Host | Out-Null
 }

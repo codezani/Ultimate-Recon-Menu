@@ -1,48 +1,54 @@
 # Ultimate Recon Framework – Windows Edition
 
-A clean, safe, and modular PowerShell reconnaissance framework designed for authorized security testing, bug bounty hunting, and penetration testing on Windows systems.
+**Fast, safe, and interactive reconnaissance pipeline for authorized security testing only.**
 
-**IMPORTANT**: This tool is for **authorized testing only**. You must have explicit permission to scan any target.
+A PowerShell-based framework optimized for Windows environments, designed for bug bounty hunters, penetration testers, and red teamers who have **explicit permission** to test targets.
+
+**Important Legal Notice**  
+This tool is provided **strictly for authorized use only** (bug bounty programs, penetration testing engagements with written permission). Unauthorized scanning is illegal. Always confirm authorization before running.
 
 ## Features
 
-- Modular step-by-step workflow with resume support
-- Safe rate limits optimized for Windows
-- Live output for long-running tools (ffuf, nuclei, dalfox)
-- Automatic logging (`recon.log`)
-- Professional HTML report generation
-- Dry-run mode for testing commands
-- Tool availability checks and graceful degradation
-- Clean, anonymous code – ready for public sharing
+- Interactive menu-driven workflow
+- Step-by-step recon pipeline:  
+  1. Subdomain enumeration  
+  2. Live host probing  
+  3. URL collection (historical + crawling)  
+  4. Parameter discovery  
+  5. Directory brute-forcing  
+  6. Vulnerability scanning (Nuclei)  
+  7. XSS testing (Dalfox)  
+  8. Port scanning  
+- Progress tracking with `.done_*` marker files  
+- Rate limiting, timeouts, and retries for stability  
+- Simple HTML report generation  
+- Dry-run mode (`-DryRun`) for testing commands without execution  
+- Wordlist auto-check with helpful setup instructions
 
-## Prerequisites
+### Tools Integrated
 
-Install the following tools and ensure they are in your PATH:
+| Category              | Tools                                      | Purpose                              |
+|-----------------------|--------------------------------------------|--------------------------------------|
+| Subdomain Enum        | subfinder, amass, puredns, dnsx            | Passive & resolved subdomains        |
+| Probing               | httpx, tlsx                                | Live hosts, titles, tech detection, TLS info |
+| Crawling / URLs       | gau, waybackurls, katana, gospider         | Historical + active URL collection   |
+| Parameters            | fallparams                                 | Hidden parameter discovery           |
+| Brute-force           | ffuf                                       | Directory / file brute-forcing       |
+| Vulnerability Scan    | nuclei                                     | Template-based vuln detection        |
+| XSS                   | dalfox                                     | Reflected & blind XSS hunting        |
+| Ports                 | naabu                                      | Top ports scanning                   |
 
-- subfinder
-- amass
-- httpx
-- gau
-- waybackurls
-- katana
-- ffuf
-- nuclei
-- dalfox
-- naabu
-- tlsx
-- puredns (optional)
-- dnsx (optional)
+## Requirements
 
-Wordlist: Place a directory wordlist at `wordlists\dir-medium.txt` (e.g., from SecLists).
+- Windows 10 / 11  
+- PowerShell 5.1+ (or PowerShell 7 recommended)  
+- **Go 1.21+** installed (https://go.dev/dl/)  
+- **Git** installed (https://git-scm.com/download/win)  
+- Run scripts **as Administrator** (required for network tools stability)
 
-## Usage
+## Installation
 
-```powershell
-# Basic usage
-.\Ultimate-Recon.ps1 -Domain example.com
-
-# Custom severity and wordlist
-.\Ultimate-Recon.ps1 -Domain example.com -NucleiSeverity "critical,high" -Wordlist "wordlists/custom.txt"
-
-# Dry run (preview commands only)
-.\Ultimate-Recon.ps1 -Domain example.com -DryRun
+1. Clone the repository:
+   ```powershell
+   git clone https://github.com/codezani/ultimate-recon-windows.git
+   cd ultimate-recon-windows

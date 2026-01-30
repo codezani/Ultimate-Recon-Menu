@@ -1,9 +1,10 @@
 #Requires -RunAsAdministrator
 <#
-    Ultimate Recon Framework – Windows Edition (2026 – MAX Coverage)
-    Version: 1.5.13 – Final | All tools kept | Fixed flags + per-tool resume & logging | dnsx instead of puredns
-    Purpose: AUTHORIZED TESTING / Bug Bounty / Pentest ONLY
-    Warning: Explicit written permission required for any target!
+    Ultimate Recon Framework - Windows Edition (2026 - MAX Coverage)
+    Version: 1.5.13 - Final
+    Purpose: Authorized security testing / Bug Bounty / Penetration Testing ONLY
+    License: MIT (see LICENSE file or https://opensource.org/licenses/MIT)
+    Warning: Explicit written permission required before scanning any target!
 #>
 
 [CmdletBinding()]
@@ -36,7 +37,7 @@ if ($Proxy) { Write-Host " Proxy  : $Proxy" -ForegroundColor Cyan }
 if ($Auto)  { Write-Host " Mode   : FULL AUTO PIPELINE" -ForegroundColor Green }
 Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Red
 
-if (-not $Auto) { Read-Host "Press Enter to confirm authorization" | Out-Null }
+if (-not $Auto) { Read-Host "Press Enter to confirm you are authorized to test this target" | Out-Null }
 
 # ────────────────────────────── Configuration ──────────────────────────────
 $Config = @{
@@ -68,7 +69,7 @@ Set-Location $OutputDir
 
 $proxyArg = if ($Proxy) { "-proxy `"$Proxy`"" } else { "" }
 
-# ─── Tool search ───────
+# ─── Tool search locations ───────
 $env:PATH = "$PSScriptRoot;$env:USERPROFILE\go\bin;C:\Program Files\Go\bin;$env:PATH"
 
 # ────────────────────────────── Helper Functions ──────────────────────────────
@@ -433,7 +434,7 @@ if ($Auto) {
 while ($true) {
     Clear-Host
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host " Ultimate Recon MAX 2026 – $Domain" -ForegroundColor White
+    Write-Host " Ultimate Recon MAX 2026 - $Domain" -ForegroundColor White
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
     Write-Host " 1  Subdomains Enumeration"
     Write-Host " 2  Live Hosts Probing"

@@ -1,137 +1,164 @@
-# PowerShell script to install reconnaissance tools (2026 compatible)
-# Run this script as Administrator (many tools work better with elevated privileges)
-
 #Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    Ultimate Recon Tools Installer (Windows)
+    Installs / updates all required tools for the reconnaissance framework
 
-Write-Host "Installing Bug Bounty / Recon Tools on Windows" -ForegroundColor Cyan
-Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+.DESCRIPTION
+    This script installs or updates all Go-based and Python-based tools 
+    commonly used in bug bounty and authorized reconnaissance workflows.
 
-$ErrorActionPreference = "Stop"
+    Tools installed:
+    - Go-based: subfinder, amass, assetfinder, findomain, httpx, gau, hakrawler, gospider, 
+      ffuf, nuclei, dalfox, tlsx, dnsx, naabu, fallparams, x8, getJS, qsreplace, gf
+    - Python-based: arjun, paramspider, waymore
 
-# ───────────────────────────────────────────────
-# Helper function to check if command exists
-# ───────────────────────────────────────────────
-function Test-CommandExists {
-    param ([string]$cmd)
-    return $null -ne (Get-Command $cmd -ErrorAction SilentlyContinue)
-}
+.NOTES
+    Requirements:
+    - Windows 10/11
+    - PowerShell 5.1+
+    - Go 1.18+ installed (https://go.dev/dl/)
+    - Python 3.9+ and pip installed
+    - Git installed (optional but recommended)
+    - Internet connection
 
-# ───────────────────────────────────────────────
-# Check prerequisites: Go and Git
-# ───────────────────────────────────────────────
-Write-Host "Checking prerequisites..." -ForegroundColor Yellow
+    Run as Administrator for best results.
+#>
 
-if (-not (Test-CommandExists "go")) {
-    Write-Host "ERROR: Go is not installed!" -ForegroundColor Red
-    Write-Host "Download and install the latest Go from: https://go.dev/dl/" -ForegroundColor Yellow
-    Write-Host "After installation, close and reopen PowerShell as Administrator."
-    Pause
+Write-Host "Ultimate Recon Tools Installer" -ForegroundColor Cyan
+Write-Host "Installing / updating all required tools..." -ForegroundColor Yellow
+Write-Host "This may take 5-15 minutes depending on your connection." -ForegroundColor Yellow
+Write-Host ""
+
+# ────────────────────────────────────────
+#  0. Pre-checks
+# ────────────────────────────────────────
+
+# Check Go
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Go not found." -ForegroundColor Red
+    Write-Host "Please install Go from https://go.dev/dl/" -ForegroundColor Red
+    Write-Host "After installation, restart your terminal and run this script again." -ForegroundColor Red
+    pause
     exit 1
 }
 
-if (-not (Test-CommandExists "git")) {
-    Write-Host "ERROR: Git is not installed!" -ForegroundColor Red
-    Write-Host "Download and install Git from: https://git-scm.com/download/win" -ForegroundColor Yellow
-    Pause
+$goVer = (go version) -replace '.*go', ''
+Write-Host "Go version detected: $goVer" -ForegroundColor Green
+
+# Check Python & pip
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Python not found." -ForegroundColor Red
+    Write-Host "Please install Python 3.9+ from https://www.python.org/downloads/" -ForegroundColor Red
+    pause
     exit 1
 }
 
-Write-Host "Go and Git detected ✓" -ForegroundColor Green
-
-# ───────────────────────────────────────────────
-# Ensure GOBIN is in PATH (very important on Windows)
-# ───────────────────────────────────────────────
-$goPath = (go env GOPATH)
-$gobin  = Join-Path $goPath "bin"
-
-if (-not ($env:Path -split ";" | Where-Object { $_ -eq $gobin })) {
-    Write-Host "Adding $gobin to user PATH..." -ForegroundColor Yellow
-    $env:Path += ";$gobin"
-    [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::User)
-    Write-Host "PATH updated. A new PowerShell window is required after this script finishes." -ForegroundColor DarkYellow
+# Check pipx (recommended for clean Python tool installs)
+if (-not (Get-Command pipx -ErrorAction SilentlyContinue)) {
+    Write-Host "pipx not found - installing..." -ForegroundColor Yellow
+    python -m pip install --user pipx
+    python -m pipx ensurepath
+    Write-Host "pipx installed. Please close and reopen your terminal, then run this script again." -ForegroundColor Yellow
+    pause
+    exit 0
 }
 
-# ───────────────────────────────────────────────
-# Install pdtm (ProjectDiscovery Tool Manager)
-# ───────────────────────────────────────────────
-Write-Host "`nInstalling pdtm (recommended tool manager)..." -ForegroundColor Cyan
-
-go install -v github.com/projectdiscovery/pdtm/cmd/pdtm@latest
-
-if (-not (Test-CommandExists "pdtm")) {
-    Write-Host "pdtm installation failed." -ForegroundColor Red
-    Write-Host "Try manually: go install -v github.com/projectdiscovery/pdtm/cmd/pdtm@latest" -ForegroundColor Yellow
-    Pause
-    exit 1
+# Optional: Chocolatey for extra utilities (not strictly required)
+if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host "Installing Chocolatey..." -ForegroundColor Yellow
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 }
 
-Write-Host "pdtm installed successfully ✓" -ForegroundColor Green
+# ────────────────────────────────────────
+#  1. Go-based tools (go install)
+# ────────────────────────────────────────
 
-# ───────────────────────────────────────────────
-# Install ProjectDiscovery tools using pdtm
-# ───────────────────────────────────────────────
-Write-Host "`nInstalling ProjectDiscovery tools via pdtm..." -ForegroundColor Cyan
+Write-Host "`nInstalling / updating Go-based tools..." -ForegroundColor Cyan
 
-$pdtm_tools = @(
-    "subfinder",
-    "httpx",
-    "nuclei",
-    "katana",
-    "naabu",
-    "tlsx",
-    "dnsx"
+$goTools = @(
+    "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
+    "github.com/owasp-amass/amass/v4/...@master",
+    "github.com/tomnomnom/assetfinder@latest",
+    "github.com/Findomain/Findomain@latest",
+    "github.com/projectdiscovery/httpx/cmd/httpx@latest",
+    "github.com/lc/gau/v2/cmd/gau@latest",
+    "github.com/hakluke/hakrawler@latest",
+    "github.com/jaeles-project/gospider@latest",
+    "github.com/ffuf/ffuf/v2@latest",
+    "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+    "github.com/hahwul/dalfox/v2@latest",
+    "github.com/projectdiscovery/tlsx/cmd/tlsx@latest",
+    "github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
+    "github.com/projectdiscovery/naabu/v2/cmd/naabu@latest",
+    "github.com/ImAyrix/fallparams@latest",
+    "github.com/s0md3v/Arjun@latest",
+    "github.com/sh1yo/x8@latest",
+    "github.com/003random/getJS@latest",
+    "github.com/GerbenJavado/LinkFinder@latest",
+    "github.com/hahwul/qsreplace@latest",
+    "github.com/tomnomnom/gf@latest"
 )
 
-foreach ($tool in $pdtm_tools) {
-    Write-Host "→ $tool " -NoNewline -ForegroundColor Yellow
-    & pdtm install $tool --silent
-    if ($?) { Write-Host "✓" -ForegroundColor Green } else { Write-Host "✗" -ForegroundColor Red }
+foreach ($tool in $goTools) {
+    Write-Host "Installing/updating: $tool" -ForegroundColor DarkCyan
+    go install -v $tool
 }
 
-# Optional: install ALL PD tools at once (uncomment if you want)
-# & pdtm install-all --silent
-
-# ───────────────────────────────────────────────
-# Install other popular recon tools manually
-# ───────────────────────────────────────────────
-Write-Host "`nInstalling additional tools..." -ForegroundColor Cyan
-
-$manual_tools = @{
-    "amass"       = "github.com/owasp-amass/amass/v4/...@master"
-    "gau"         = "github.com/lc/gau/v2/cmd/gau@latest"
-    "waybackurls" = "github.com/tomnomnom/waybackurls@latest"
-    "ffuf"        = "github.com/ffuf/ffuf/v2@latest"
-    "dalfox"      = "github.com/hahwul/dalfox/v2@latest"
-    "gospider"    = "github.com/jaeles-project/gospider@latest"
-    "puredns"     = "github.com/d3mondev/puredns/v2@latest"
-    "fallparams"  = "github.com/ImAyrix/fallparams@latest"
+# Install gf patterns (after gf tool is installed)
+Write-Host "Installing gf patterns..." -ForegroundColor DarkCyan
+if (Tool-Exists "gf") {
+    gf install
+} else {
+    Write-Host "gf not installed yet - patterns will be installed after restart" -ForegroundColor Yellow
 }
 
-foreach ($tool in $manual_tools.Keys) {
-    if (-not (Test-CommandExists $tool)) {
-        Write-Host "Installing $tool ..." -ForegroundColor Yellow
-        go install -v $manual_tools[$tool]
-        if ($?) { Write-Host "✓" -ForegroundColor Green } else { Write-Host "✗" -ForegroundColor Red }
+# ────────────────────────────────────────
+#  2. Python-based tools (via pipx)
+# ────────────────────────────────────────
+
+Write-Host "`nInstalling / updating Python-based tools..." -ForegroundColor Cyan
+
+$pythonTools = @(
+    "arjun",
+    "git+https://github.com/0xasm0d3us/paramspider.git",
+    "waymore"
+)
+
+foreach ($pkg in $pythonTools) {
+    Write-Host "Installing/updating: $pkg" -ForegroundColor DarkCyan
+    pipx install $pkg --force
+}
+
+# ────────────────────────────────────────
+#  3. Final checks & instructions
+# ────────────────────────────────────────
+
+Write-Host "`nChecking installed tools..." -ForegroundColor Cyan
+
+$checkTools = @(
+    "subfinder","amass","assetfinder","findomain","httpx","gau","waymore","waybackurls",
+    "katana","hakrawler","gospider","ffuf","nuclei","dalfox","tlsx","dnsx",
+    "fallparams","arjun","paramspider","gf","x8","getJS","linkfinder","qsreplace"
+)
+
+foreach ($tool in $checkTools) {
+    if (Tool-Exists $tool) {
+        Write-Host "$tool → Installed" -ForegroundColor Green
     } else {
-        Write-Host "$tool already installed ✓" -ForegroundColor Green
+        Write-Host "$tool → Not found (may require restart or PATH check)" -ForegroundColor Yellow
     }
 }
 
-# ───────────────────────────────────────────────
-# Final instructions
-# ───────────────────────────────────────────────
-Write-Host "`n──────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
-Write-Host "Installation completed!" -ForegroundColor Green
-Write-Host "`nNext steps:" -ForegroundColor Yellow
-Write-Host "1. Close this PowerShell window" -ForegroundColor White
-Write-Host "2. Open a NEW PowerShell (preferably as Administrator)" -ForegroundColor White
-Write-Host "3. Test the tools:" -ForegroundColor White
-Write-Host "   subfinder -version" -ForegroundColor Gray
-Write-Host "   httpx -version"     -ForegroundColor Gray
-Write-Host "   nuclei -update-templates" -ForegroundColor Gray
-Write-Host "   pdtm list"           -ForegroundColor Gray
-Write-Host "   pdtm update-all     # to update everything later" -ForegroundColor Gray
-Write-Host "`nIf any tool is still missing → run the go install command manually for that tool."
-Write-Host "Happy hunting!" -ForegroundColor Magenta
+Write-Host "`nInstallation / update completed!" -ForegroundColor Green
+Write-Host "Next steps:"
+Write-Host "  1. Close and reopen your terminal / PowerShell"
+Write-Host "  2. Verify PATH includes: $env:USERPROFILE\go\bin"
+Write-Host "  3. Run your recon script: .\recon.ps1 example.com"
+Write-Host ""
+Write-Host "If any tool is still missing, run this installer again after restarting." -ForegroundColor Yellow
 
-Pause
+Write-Host "`nHappy hunting (with permission only)!" -ForegroundColor Magenta
+pause

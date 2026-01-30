@@ -1,476 +1,164 @@
 #Requires -RunAsAdministrator
 <#
-    Ultimate Recon Framework - Windows Edition (2026 - MAX Coverage)
-    Version: 1.5.13 - Final
-    Purpose: Authorized security testing / Bug Bounty / Penetration Testing ONLY
-    License: MIT (see LICENSE file or https://opensource.org/licenses/MIT)
-    Warning: Explicit written permission required before scanning any target!
+.SYNOPSIS
+    Ultimate Recon Tools Installer (Windows)
+    Installs / updates all required tools for the reconnaissance framework
+
+.DESCRIPTION
+    This script installs or updates all Go-based and Python-based tools 
+    commonly used in bug bounty and authorized reconnaissance workflows.
+
+    Tools installed:
+    - Go-based: subfinder, amass, assetfinder, findomain, httpx, gau, hakrawler, gospider, 
+      ffuf, nuclei, dalfox, tlsx, dnsx, naabu, fallparams, x8, getJS, qsreplace, gf
+    - Python-based: arjun, paramspider, waymore
+
+.NOTES
+    Requirements:
+    - Windows 10/11
+    - PowerShell 5.1+
+    - Go 1.18+ installed (https://go.dev/dl/)
+    - Python 3.9+ and pip installed
+    - Git installed (optional but recommended)
+    - Internet connection
+
+    Run as Administrator for best results.
 #>
 
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory=$true, Position=0)]
-    [string]$Domain,
+Write-Host "Ultimate Recon Tools Installer" -ForegroundColor Cyan
+Write-Host "Installing / updating all required tools..." -ForegroundColor Yellow
+Write-Host "This may take 5-15 minutes depending on your connection." -ForegroundColor Yellow
+Write-Host ""
 
-    [string]$WordlistDir = "wordlists",
+# ────────────────────────────────────────
+#  0. Pre-checks
+# ────────────────────────────────────────
 
-    [string]$NucleiSeverity = "critical,high,medium,low,unknown",
-
-    [string]$Proxy = "",
-
-    [switch]$Auto,
-
-    [switch]$DryRun
-)
-
-# ────────────────────────────── Validation & Banner ──────────────────────────────
-if ($Domain -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$') {
-    Write-Host "ERROR: Invalid domain format (e.g. example.com)" -ForegroundColor Red
+# Check Go
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Go not found." -ForegroundColor Red
+    Write-Host "Please install Go from https://go.dev/dl/" -ForegroundColor Red
+    Write-Host "After installation, restart your terminal and run this script again." -ForegroundColor Red
+    pause
     exit 1
 }
 
-Clear-Host
-Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Red
-Write-Host "       AUTHORIZED SECURITY TESTING ONLY – 2026 MAX RECON COVERAGE        " -ForegroundColor Yellow
-Write-Host " Target : $Domain" -ForegroundColor White
-if ($Proxy) { Write-Host " Proxy  : $Proxy" -ForegroundColor Cyan }
-if ($Auto)  { Write-Host " Mode   : FULL AUTO PIPELINE" -ForegroundColor Green }
-Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Red
+$goVer = (go version) -replace '.*go', ''
+Write-Host "Go version detected: $goVer" -ForegroundColor Green
 
-if (-not $Auto) { Read-Host "Press Enter to confirm you are authorized to test this target" | Out-Null }
-
-# ────────────────────────────── Configuration ──────────────────────────────
-$Config = @{
-    HttpxRate      = 160
-    HttpxTimeout   = 10
-    HttpxRetries   = 2
-    NucleiRate     = 45
-    NucleiTimeout  = 10
-    FFUFThreads    = 40
-    FFUFTimeout    = 8
-    KatanaDepth    = 6
-    GospiderDepth  = 4
-    HakrawlerDepth = 5
-    GospiderThreads= 15
-    ArjunThreads   = 12
-    X8Threads      = 80
-    MaxFFUFTargets = 25
-    LogFile        = "recon.log"
-    
-    AmassTimeout   = 30
-    AmassDNSQPS    = 100
-    AmassMaxQueries= 10000
+# Check Python & pip
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Python not found." -ForegroundColor Red
+    Write-Host "Please install Python 3.9+ from https://www.python.org/downloads/" -ForegroundColor Red
+    pause
+    exit 1
 }
 
-$BaseDir   = $PSScriptRoot
-$OutputDir = Join-Path $BaseDir "$Domain-recon"
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-Set-Location $OutputDir
-
-$proxyArg = if ($Proxy) { "-proxy `"$Proxy`"" } else { "" }
-
-# ─── Tool search locations ───────
-$env:PATH = "$PSScriptRoot;$env:USERPROFILE\go\bin;C:\Program Files\Go\bin;$env:PATH"
-
-# ────────────────────────────── Helper Functions ──────────────────────────────
-function Log-Step {
-    param([string]$Msg, [string]$Lvl = "INFO")
-    $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[$t] [$Lvl] $Msg" | Out-File $Config.LogFile -Append -Encoding utf8
+# Check pipx (recommended for clean Python tool installs)
+if (-not (Get-Command pipx -ErrorAction SilentlyContinue)) {
+    Write-Host "pipx not found - installing..." -ForegroundColor Yellow
+    python -m pip install --user pipx
+    python -m pipx ensurepath
+    Write-Host "pipx installed. Please close and reopen your terminal, then run this script again." -ForegroundColor Yellow
+    pause
+    exit 0
 }
 
-function Log-Tool {
-    param([string]$Tool, [string]$Action, [string]$Extra = "")
-    Log-Step "$Tool $Action $Extra" "TOOL"
+# Optional: Chocolatey for extra utilities (not strictly required)
+if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host "Installing Chocolatey..." -ForegroundColor Yellow
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 }
 
-function Tool-Exists { param([string]$n) return $null -ne (Get-Command $n -ErrorAction SilentlyContinue) }
+# ────────────────────────────────────────
+#  1. Go-based tools (go install)
+# ────────────────────────────────────────
 
-function Execute-Tool {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$Cmd,
+Write-Host "`nInstalling / updating Go-based tools..." -ForegroundColor Cyan
 
-        [string]$ToolName = $null
-    )
+$goTools = @(
+    "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
+    "github.com/owasp-amass/amass/v4/...@master",
+    "github.com/tomnomnom/assetfinder@latest",
+    "github.com/Findomain/Findomain@latest",
+    "github.com/projectdiscovery/httpx/cmd/httpx@latest",
+    "github.com/lc/gau/v2/cmd/gau@latest",
+    "github.com/hakluke/hakrawler@latest",
+    "github.com/jaeles-project/gospider@latest",
+    "github.com/ffuf/ffuf/v2@latest",
+    "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+    "github.com/hahwul/dalfox/v2@latest",
+    "github.com/projectdiscovery/tlsx/cmd/tlsx@latest",
+    "github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
+    "github.com/projectdiscovery/naabu/v2/cmd/naabu@latest",
+    "github.com/ImAyrix/fallparams@latest",
+    "github.com/s0md3v/Arjun@latest",
+    "github.com/sh1yo/x8@latest",
+    "github.com/003random/getJS@latest",
+    "github.com/GerbenJavado/LinkFinder@latest",
+    "github.com/hahwul/qsreplace@latest",
+    "github.com/tomnomnom/gf@latest"
+)
 
-    if (-not $ToolName) {
-        $ToolName = ($Cmd -split ' ')[0].Trim()
-    }
-
-    Log-Tool $ToolName "STARTED" "→ $Cmd"
-    Write-Host "Executing $ToolName → $Cmd" -ForegroundColor DarkCyan
-
-    if ($DryRun) {
-        Log-Tool $ToolName "DRY-RUN"
-        return $true
-    }
-
-    $success = $false
-    try {
-        Invoke-Expression $Cmd
-        $success = $true
-        Log-Tool $ToolName "FINISHED"
-        Write-Host "$ToolName finished" -ForegroundColor Green
-    }
-    catch {
-        Log-Tool $ToolName "FAILED" "- $($_.Exception.Message)"
-        Write-Host "$ToolName failed: $($_.Exception.Message)" -ForegroundColor Red
-    }
-
-    return $success
+foreach ($tool in $goTools) {
+    Write-Host "Installing/updating: $tool" -ForegroundColor DarkCyan
+    go install -v $tool
 }
 
-function Step-Done { param([string]$n) Test-Path ".done_$n" }
-function Mark-Done { param([string]$n) New-Item ".done_$n" -ItemType File -Force | Out-Null }
-
-function Require-File {
-    param([string]$f, [string]$s)
-    if (-not (Test-Path $f)) {
-        Write-Host "Missing file: $f  →  run step '$s' first" -ForegroundColor Red
-        return $false
-    }
-    return $true
+# Install gf patterns (after gf tool is installed)
+Write-Host "Installing gf patterns..." -ForegroundColor DarkCyan
+if (Tool-Exists "gf") {
+    gf install
+} else {
+    Write-Host "gf not installed yet - patterns will be installed after restart" -ForegroundColor Yellow
 }
 
-# ────────────────────────────── Tool Availability Warning ──────────────────────────────
-$Tools = @(
+# ────────────────────────────────────────
+#  2. Python-based tools (via pipx)
+# ────────────────────────────────────────
+
+Write-Host "`nInstalling / updating Python-based tools..." -ForegroundColor Cyan
+
+$pythonTools = @(
+    "arjun",
+    "git+https://github.com/0xasm0d3us/paramspider.git",
+    "waymore"
+)
+
+foreach ($pkg in $pythonTools) {
+    Write-Host "Installing/updating: $pkg" -ForegroundColor DarkCyan
+    pipx install $pkg --force
+}
+
+# ────────────────────────────────────────
+#  3. Final checks & instructions
+# ────────────────────────────────────────
+
+Write-Host "`nChecking installed tools..." -ForegroundColor Cyan
+
+$checkTools = @(
     "subfinder","amass","assetfinder","findomain","httpx","gau","waymore","waybackurls",
     "katana","hakrawler","gospider","ffuf","nuclei","dalfox","tlsx","dnsx",
     "fallparams","arjun","paramspider","gf","x8","getJS","linkfinder","qsreplace"
 )
 
-foreach ($t in $Tools) {
-    if (-not (Tool-Exists $t)) {
-        Write-Host "Tool not found: $t" -ForegroundColor Yellow
-    }
-}
-
-# ────────────────────────────── Recon Steps ──────────────────────────────
-
-function Step-Subdomains {
-    if (Step-Done "subs") { Write-Host "Subdomains already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "Subdomains" "STARTED"
-
-    if (-not (Test-Path "subfinder.txt"))   { Execute-Tool "subfinder -d $Domain -all -silent -o subfinder.txt $proxyArg" "subfinder" }
-    if (-not (Test-Path "amass.txt"))       { Execute-Tool "amass enum -passive -d $Domain -timeout $($Config.AmassTimeout) -dns-qps $($Config.AmassDNSQPS) -max-dns-queries $($Config.AmassMaxQueries) -o amass.txt $proxyArg" "amass" }
-    if (Tool-Exists "assetfinder" -and -not (Test-Path "assetfinder.txt")) { Execute-Tool "assetfinder --subs-only $Domain > assetfinder.txt" "assetfinder" }
-    if (Tool-Exists "findomain"   -and -not (Test-Path "findomain.txt"))   { Execute-Tool "findomain -t $Domain -q -u findomain.txt" "findomain" }
-
-    if (-not (Test-Path "scoped_subs.txt")) {
-        $files = @("subfinder.txt","amass.txt","assetfinder.txt","findomain.txt")
-        $all = @()
-        foreach ($f in $files) { if (Test-Path $f) { $all += Get-Content $f -ea 0 } }
-        $all | Sort-Object -Unique | Out-File scoped_subs.txt
-    }
-
-    if (-not (Test-Path "resolved.txt")) {
-        Execute-Tool "dnsx -l scoped_subs.txt -silent -resp-only -o resolved.txt $proxyArg" "dnsx"
-    }
-
-    if (-not (Test-Path "live_subs.txt")) {
-        Execute-Tool "dnsx -l resolved.txt -silent -resp-only -o live_subs.txt $proxyArg" "dnsx"
-    }
-
-    if (Test-Path "live_subs.txt") {
-        Mark-Done "subs"
-        Log-Step "Subdomains" "COMPLETED"
-        Write-Host "Subdomains completed" -ForegroundColor Green
-    }
-}
-
-function Step-LiveHosts {
-    if (-not (Require-File "live_subs.txt" "subdomains")) { return }
-    if (Step-Done "live") { Write-Host "LiveHosts already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "LiveHosts" "STARTED"
-
-    if (-not (Test-Path "live.json")) {
-        Execute-Tool "httpx -l live_subs.txt -rl $($Config.HttpxRate) -timeout $($Config.HttpxTimeout) -retries $($Config.HttpxRetries) -title -tech-detect -status-code -json -o live.json $proxyArg" "httpx"
-    }
-
-    if ((Test-Path "live.json") -and (-not (Test-Path "live_urls.txt"))) {
-        Get-Content live.json | ConvertFrom-Json | 
-            Where-Object { $_.status_code -and $_.status_code -lt 500 } | 
-            Select-Object -ExpandProperty url | 
-            Out-File live_urls.txt -Encoding utf8
-        Write-Host "Extracted live URLs to live_urls.txt" -ForegroundColor Cyan
-    }
-
-    if ((Test-Path "live_urls.txt") -and (-not (Test-Path "tls.txt"))) {
-        Execute-Tool "tlsx -l live_urls.txt -o tls.txt $proxyArg" "tlsx"
-    }
-
-    if (Test-Path "live_urls.txt") {
-        Mark-Done "live"
-        Log-Step "LiveHosts" "COMPLETED"
-        Write-Host "LiveHosts completed" -ForegroundColor Green
-    }
-}
-
-function Step-URLCollection {
-    if (-not (Require-File "live_urls.txt" "livehosts")) { return }
-    if (Step-Done "urls") { Write-Host "URLCollection already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "URLCollection" "STARTED"
-
-    if (Tool-Exists "gau" -and -not (Test-Path "gau.txt")) { 
-        Execute-Tool "gau $Domain --subs --blacklist png,jpg,woff,css,js > gau.txt" "gau" 
-    }
-
-    if (Tool-Exists "waymore" -and -not (Test-Path "waymore.txt")) { 
-        Execute-Tool "waymore -i $Domain -oU waymore.txt" "waymore" 
-    }
-
-    if (Tool-Exists "waybackurls" -and -not (Test-Path "wayback.txt")) { 
-        Execute-Tool "waybackurls $Domain > wayback.txt" "waybackurls" 
-    }
-
-    if (-not (Test-Path "katana.txt")) { 
-        Execute-Tool "katana -list live_urls.txt -d $($Config.KatanaDepth) -jc -silent -o katana.txt $proxyArg" "katana" 
-    }
-
-    if (Tool-Exists "hakrawler" -and -not (Test-Path "hakrawler.txt")) {
-        Execute-Tool "Get-Content live_urls.txt | hakrawler -d $($Config.HakrawlerDepth) > hakrawler.txt" "hakrawler"
-    }
-
-    if (Tool-Exists "gospider" -and -not (Test-Path "gospider_urls.txt")) {
-        Remove-Item "gospider_out" -Recurse -Force -ErrorAction SilentlyContinue
-        Execute-Tool "gospider -S live_urls.txt -o gospider_out -c $($Config.GospiderThreads) -d $($Config.GospiderDepth) -q --other-source" "gospider"
-        Get-ChildItem "gospider_out" -Recurse -File | Get-Content | Sort-Object -Unique | Out-File gospider_urls.txt
-    }
-
-    if (-not (Test-Path "all_urls.txt")) {
-        $files = @("gau.txt","waymore.txt","wayback.txt","katana.txt","hakrawler.txt","gospider_urls.txt")
-        $all = @()
-        foreach ($f in $files) { if (Test-Path $f) { $all += Get-Content $f -ea 0 } }
-        $all | Sort-Object -Unique | Out-File all_urls.txt
-    }
-
-    if (Test-Path "all_urls.txt") {
-        Mark-Done "urls"
-        Log-Step "URLCollection" "COMPLETED"
-        Write-Host "URLCollection completed – all_urls.txt ready" -ForegroundColor Green
-    }
-}
-
-function Step-ParametersAndJS {
-    if (-not (Require-File "all_urls.txt" "urls")) { return }
-    if (Step-Done "params_js") { Write-Host "ParametersAndJS already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "ParametersAndJS" "STARTED"
-
-    New-Item -ItemType Directory -Force -Path "params_js" | Out-Null
-
-    if (Tool-Exists "fallparams" -and -not (Test-Path "params_js/fall.txt")) {
-        Execute-Tool "fallparams -u all_urls.txt -c -d 3 -t 20 -o params_js/fall.txt" "fallparams"
-    }
-
-    if (Tool-Exists "arjun" -and -not (Test-Path "params_js/arjun.json")) {
-        Execute-Tool "arjun -i all_urls.txt -t $($Config.ArjunThreads) -oT params_js/arjun.json" "arjun"
-    }
-
-    if (Tool-Exists "paramspider" -and -not (Test-Path "params_js/paramspider.txt")) {
-        Execute-Tool "paramspider -d $Domain --output params_js/paramspider.txt" "paramspider"
-    }
-
-    if (-not (Test-Path "params_all.txt")) {
-        Get-ChildItem "params_js" -File -Filter "*.txt" -ErrorAction SilentlyContinue | 
-            Get-Content | Sort-Object -Unique | Out-File params_all.txt
-    }
-
-    if (Tool-Exists "getJS" -and -not (Test-Path "params_js/js_files.txt")) {
-        Execute-Tool "Get-Content all_urls.txt | getJS --complete > params_js/js_files.txt" "getJS"
-    }
-
-    if (Tool-Exists "linkfinder" -and (Test-Path "params_js/js_files.txt") -and -not (Test-Path "params_js/endpoints.txt")) {
-        Execute-Tool "Get-Content params_js/js_files.txt | linkfinder -o cli -d > params_js/endpoints.txt" "linkfinder"
-    }
-
-    if (Tool-Exists "gf") {
-        New-Item -ItemType Directory -Force -Path "gf_patterns" | Out-Null
-        @("secret","api","token","aws","firebase","takeover","jsvar","debug_page") | ForEach-Object {
-            $patternFile = "gf_patterns/$_.txt"
-            if (-not (Test-Path $patternFile)) {
-                Execute-Tool "Get-Content all_urls.txt | gf $_ | Sort-Object -Unique | Out-File $patternFile" "gf-$_"
-            }
-        }
-    }
-
-    if (Tool-Exists "qsreplace" -and -not (Test-Path "params_js/urls_with_fuzz.txt")) {
-        Execute-Tool "Get-Content all_urls.txt | qsreplace `"FUZZ`" > params_js/urls_with_fuzz.txt" "qsreplace"
-    }
-
-    if (Test-Path "params_all.txt") {
-        Mark-Done "params_js"
-        Log-Step "ParametersAndJS" "COMPLETED"
-        Write-Host "ParametersAndJS completed" -ForegroundColor Green
+foreach ($tool in $checkTools) {
+    if (Tool-Exists $tool) {
+        Write-Host "$tool → Installed" -ForegroundColor Green
     } else {
-        Log-Step "ParametersAndJS" "COMPLETED_PARTIAL"
-        Write-Host "ParametersAndJS partially completed (some tools failed)" -ForegroundColor Yellow
+        Write-Host "$tool → Not found (may require restart or PATH check)" -ForegroundColor Yellow
     }
 }
 
-function Step-X8Fuzz {
-    if (-not (Require-File "live_urls.txt" "livehosts")) { return }
-    if (-not (Tool-Exists "x8")) { Write-Host "x8 not found" -ForegroundColor Yellow; return }
-    if (Step-Done "x8") { Write-Host "x8 already completed" -ForegroundColor Cyan; return }
+Write-Host "`nInstallation / update completed!" -ForegroundColor Green
+Write-Host "Next steps:"
+Write-Host "  1. Close and reopen your terminal / PowerShell"
+Write-Host "  2. Verify PATH includes: $env:USERPROFILE\go\bin"
+Write-Host "  3. Run your recon script: .\recon.ps1 example.com"
+Write-Host ""
+Write-Host "If any tool is still missing, run this installer again after restarting." -ForegroundColor Yellow
 
-    Log-Step "x8" "STARTED"
-
-    $wordlist = if (Test-Path "params_all.txt") { "params_all.txt" } else { "$WordlistDir/params-top.txt" }
-    if (-not (Test-Path $wordlist)) { Write-Host "No wordlist for x8" -ForegroundColor Yellow; return }
-
-    if (-not (Test-Path "x8_results.txt")) {
-        Execute-Tool "x8 -l live_urls.txt -w $wordlist -t $($Config.X8Threads) -o x8_results.txt $proxyArg" "x8"
-    }
-
-    if (Test-Path "x8_results.txt") {
-        Mark-Done "x8"
-        Log-Step "x8" "COMPLETED"
-        Write-Host "x8 completed" -ForegroundColor Green
-    }
-}
-
-function Step-DirectoryBrute {
-    if (-not (Require-File "live_urls.txt" "livehosts")) { return }
-    $wordlist = Join-Path $BaseDir "$WordlistDir\dir-medium.txt"
-    if (-not (Test-Path $wordlist)) { Write-Host "Directory wordlist missing" -ForegroundColor Yellow; return }
-    if (Step-Done "ffuf") { Write-Host "FFUF already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "FFUF" "STARTED"
-
-    Get-Content live_urls.txt -First $Config.MaxFFUFTargets | ForEach-Object {
-        $url = $_.Trim()
-        if (-not $url.EndsWith("/")) { $url += "/" }
-        $safe = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($url)) -replace '[=/+]', ''
-        $outFile = "ffuf_$safe.json"
-        if (-not (Test-Path $outFile)) {
-            Execute-Tool "ffuf -u `"$url`FUZZ`" -w `"$wordlist`" -t $($Config.FFUFThreads) -timeout $($Config.FFUFTimeout) -mc 200,301,302,307,308,401,403 -ac -r -o $outFile $proxyArg" "ffuf-$safe"
-        }
-    }
-
-    Mark-Done "ffuf"
-    Log-Step "FFUF" "COMPLETED"
-    Write-Host "FFUF completed" -ForegroundColor Green
-}
-
-function Step-NucleiScan {
-    if (-not (Require-File "live_urls.txt" "livehosts")) { return }
-    if (Step-Done "nuclei") { Write-Host "Nuclei already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "Nuclei" "STARTED"
-
-    if (-not (Test-Path "nuclei_results.txt")) {
-        Execute-Tool "nuclei -l live_urls.txt -severity $NucleiSeverity -rl $($Config.NucleiRate) -timeout $($Config.NucleiTimeout) -o nuclei_results.txt $proxyArg" "nuclei"
-    }
-
-    if (Test-Path "nuclei_results.txt") {
-        Mark-Done "nuclei"
-        Log-Step "Nuclei" "COMPLETED"
-        Write-Host "Nuclei completed" -ForegroundColor Green
-    }
-}
-
-function Step-XSSScan {
-    if (-not (Require-File "all_urls.txt" "urls")) { return }
-    if (-not (Tool-Exists "dalfox")) { Write-Host "dalfox not found" -ForegroundColor Yellow; return }
-    if (Step-Done "xss") { Write-Host "XSS already completed" -ForegroundColor Cyan; return }
-
-    Log-Step "dalfox" "STARTED"
-
-    if (-not (Test-Path "dalfox_results.txt")) {
-        Execute-Tool "Get-Content all_urls.txt | dalfox pipe --only-poc --delay 300 -o dalfox_results.txt" "dalfox"
-    }
-
-    if (Test-Path "dalfox_results.txt") {
-        Mark-Done "xss"
-        Log-Step "dalfox" "COMPLETED"
-        Write-Host "XSS completed" -ForegroundColor Green
-    }
-}
-
-function Generate-Report {
-    Log-Step "Report" "STARTED"
-
-    $files = @("scoped_subs.txt","live_urls.txt","all_urls.txt","params_all.txt","x8_results.txt","nuclei_results.txt","dalfox_results.txt")
-    $html = "<html><head><meta charset='utf-8'><title>Recon Report - $Domain</title><style>body{background:#0d1117;color:#c9d1d9;font-family:Consolas;padding:20px;} h1{color:#58a6ff;text-align:center;} h2{color:#f0883e;} pre{background:#010409;padding:15px;border-radius:8px;max-height:400px;overflow:auto;}</style></head><body><h1>Recon Report – $Domain</h1><p>Generated: $(Get-Date)</p>"
-
-    foreach ($f in $files) {
-        if (Test-Path $f) {
-            $count = (Get-Content $f -ea 0 | Measure-Object -Line).Lines
-            $content = Get-Content $f -First 300 -ea 0 | Out-String
-            $html += "<h2>$f ($count lines)</h2><pre>$content</pre>"
-        }
-    }
-    $html += "</body></html>"
-    $html | Out-File report.html -Encoding utf8
-
-    Log-Step "Report" "COMPLETED"
-    Write-Host "Report generated: report.html" -ForegroundColor Green
-}
-
-function Run-FullAuto {
-    Write-Host "FULL AUTO started" -ForegroundColor Magenta
-    Step-Subdomains
-    Step-LiveHosts
-    Step-URLCollection
-    Step-ParametersAndJS
-    Step-X8Fuzz
-    Step-DirectoryBrute
-    Step-NucleiScan
-    Step-XSSScan
-    Generate-Report
-    Write-Host "FULL AUTO finished" -ForegroundColor Magenta
-}
-
-# ────────────────────────────── Main Menu ──────────────────────────────
-if ($Auto) {
-    Run-FullAuto
-    exit
-}
-
-while ($true) {
-    Clear-Host
-    Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host " Ultimate Recon MAX 2026 - $Domain" -ForegroundColor White
-    Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host " 1  Subdomains Enumeration"
-    Write-Host " 2  Live Hosts Probing"
-    Write-Host " 3  URL Collection"
-    Write-Host " 4  Parameters + JS Analysis"
-    Write-Host " 5  x8 Fuzzing"
-    Write-Host " 6  FFUF Directories"
-    Write-Host " 7  Nuclei Scan"
-    Write-Host " 8  XSS (dalfox)"
-    Write-Host " 9  Generate Report"
-    Write-Host "10  FULL AUTO"
-    Write-Host " x  Exit"
-    Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
-
-    $choice = Read-Host "Select option"
-
-    switch ($choice) {
-        "1"  { Step-Subdomains }
-        "2"  { Step-LiveHosts }
-        "3"  { Step-URLCollection }
-        "4"  { Step-ParametersAndJS }
-        "5"  { Step-X8Fuzz }
-        "6"  { Step-DirectoryBrute }
-        "7"  { Step-NucleiScan }
-        "8"  { Step-XSSScan }
-        "9"  { Generate-Report }
-        "10" { Run-FullAuto }
-        "x"  {
-            Write-Host "`nSession ended. Results in: $OutputDir" -ForegroundColor Green
-            break
-        }
-        default { Write-Host "Invalid option" -ForegroundColor Red; Start-Sleep -Seconds 1 }
-    }
-
-    if ($choice -ne "x") {
-        Write-Host "`nPress Enter to continue..." -ForegroundColor Cyan
-        Read-Host | Out-Null
-    }
-}
+Write-Host "`nHappy hunting (with permission only)!" -ForegroundColor Magenta
+pause

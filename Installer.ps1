@@ -1,164 +1,107 @@
-#Requires -RunAsAdministrator
-<#
-.SYNOPSIS
-    Ultimate Recon Tools Installer (Windows)
-    Installs / updates all required tools for the reconnaissance framework
-
-.DESCRIPTION
-    This script installs or updates all Go-based and Python-based tools 
-    commonly used in bug bounty and authorized reconnaissance workflows.
-
-    Tools installed:
-    - Go-based: subfinder, amass, assetfinder, findomain, httpx, gau, hakrawler, gospider, 
-      ffuf, nuclei, dalfox, tlsx, dnsx, naabu, fallparams, x8, getJS, qsreplace, gf
-    - Python-based: arjun, paramspider, waymore
-
-.NOTES
-    Requirements:
-    - Windows 10/11
-    - PowerShell 5.1+
-    - Go 1.18+ installed (https://go.dev/dl/)
-    - Python 3.9+ and pip installed
-    - Git installed (optional but recommended)
-    - Internet connection
-
-    Run as Administrator for best results.
-#>
+# install-tools.ps1
+# =============================================================================
+# Ultimate Recon Tools Installer - Windows
+# Purpose: Install or update common Go-based recon tools used in the framework
+# Version: 1.0
+# License: MIT
+# Requirements: Go 1.18+ installed, $GOPATH/bin in PATH
+# Usage: .\install-tools.ps1
+# =============================================================================
 
 Write-Host "Ultimate Recon Tools Installer" -ForegroundColor Cyan
-Write-Host "Installing / updating all required tools..." -ForegroundColor Yellow
-Write-Host "This may take 5-15 minutes depending on your connection." -ForegroundColor Yellow
-Write-Host ""
+Write-Host "=================================" -ForegroundColor Cyan
+Write-Host "This script will install/update the following tools:" -ForegroundColor White
+Write-Host "  - subfinder        - amass           - assetfinder" -ForegroundColor Gray
+Write-Host "  - findomain        - httpx            - gau" -ForegroundColor Gray
+Write-Host "  - waymore          - waybackurls     - katana" -ForegroundColor Gray
+Write-Host "  - hakrawler        - gospider        - ffuf" -ForegroundColor Gray
+Write-Host "  - nuclei           - dalfox          - tlsx" -ForegroundColor Gray
+Write-Host "  - dnsx             - arjun           - paramspider" -ForegroundColor Gray
+Write-Host "  - gf               - x8              - getJS" -ForegroundColor Gray
+Write-Host "  - linkfinder       - qsreplace" -ForegroundColor Gray
+Write-Host "" -ForegroundColor White
 
-# ────────────────────────────────────────
-#  0. Pre-checks
-# ────────────────────────────────────────
-
-# Check Go
+# ─── Check Go is installed ──────────────────────────────────────────────────────
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-    Write-Host "ERROR: Go not found." -ForegroundColor Red
-    Write-Host "Please install Go from https://go.dev/dl/" -ForegroundColor Red
-    Write-Host "After installation, restart your terminal and run this script again." -ForegroundColor Red
-    pause
+    Write-Host "ERROR: Go is not installed or not in PATH." -ForegroundColor Red
+    Write-Host "Please install Go from https://go.dev/dl/ and add %USERPROFILE%\go\bin to PATH" -ForegroundColor Yellow
     exit 1
 }
 
-$goVer = (go version) -replace '.*go', ''
-Write-Host "Go version detected: $goVer" -ForegroundColor Green
+$goVersion = (go version) -replace 'go version go', ''
+Write-Host "Go version detected: $goVersion" -ForegroundColor Green
 
-# Check Python & pip
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host "ERROR: Python not found." -ForegroundColor Red
-    Write-Host "Please install Python 3.9+ from https://www.python.org/downloads/" -ForegroundColor Red
-    pause
-    exit 1
+# ─── Create GOPATH bin if missing ───────────────────────────────────────────────
+$goBin = "$env:USERPROFILE\go\bin"
+if (-not (Test-Path $goBin)) {
+    New-Item -ItemType Directory -Force -Path $goBin | Out-Null
 }
 
-# Check pipx (recommended for clean Python tool installs)
-if (-not (Get-Command pipx -ErrorAction SilentlyContinue)) {
-    Write-Host "pipx not found - installing..." -ForegroundColor Yellow
-    python -m pip install --user pipx
-    python -m pipx ensurepath
-    Write-Host "pipx installed. Please close and reopen your terminal, then run this script again." -ForegroundColor Yellow
-    pause
-    exit 0
-}
+# ─── Helper function to install / update a tool ─────────────────────────────────
+function Install-Tool {
+    param (
+        [string]$ToolName,
+        [string]$RepoPath
+    )
 
-# Optional: Chocolatey for extra utilities (not strictly required)
-if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing Chocolatey..." -ForegroundColor Yellow
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-}
-
-# ────────────────────────────────────────
-#  1. Go-based tools (go install)
-# ────────────────────────────────────────
-
-Write-Host "`nInstalling / updating Go-based tools..." -ForegroundColor Cyan
-
-$goTools = @(
-    "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
-    "github.com/owasp-amass/amass/v4/...@master",
-    "github.com/tomnomnom/assetfinder@latest",
-    "github.com/Findomain/Findomain@latest",
-    "github.com/projectdiscovery/httpx/cmd/httpx@latest",
-    "github.com/lc/gau/v2/cmd/gau@latest",
-    "github.com/hakluke/hakrawler@latest",
-    "github.com/jaeles-project/gospider@latest",
-    "github.com/ffuf/ffuf/v2@latest",
-    "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
-    "github.com/hahwul/dalfox/v2@latest",
-    "github.com/projectdiscovery/tlsx/cmd/tlsx@latest",
-    "github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
-    "github.com/projectdiscovery/naabu/v2/cmd/naabu@latest",
-    "github.com/ImAyrix/fallparams@latest",
-    "github.com/s0md3v/Arjun@latest",
-    "github.com/sh1yo/x8@latest",
-    "github.com/003random/getJS@latest",
-    "github.com/GerbenJavado/LinkFinder@latest",
-    "github.com/hahwul/qsreplace@latest",
-    "github.com/tomnomnom/gf@latest"
-)
-
-foreach ($tool in $goTools) {
-    Write-Host "Installing/updating: $tool" -ForegroundColor DarkCyan
-    go install -v $tool
-}
-
-# Install gf patterns (after gf tool is installed)
-Write-Host "Installing gf patterns..." -ForegroundColor DarkCyan
-if (Tool-Exists "gf") {
-    gf install
-} else {
-    Write-Host "gf not installed yet - patterns will be installed after restart" -ForegroundColor Yellow
-}
-
-# ────────────────────────────────────────
-#  2. Python-based tools (via pipx)
-# ────────────────────────────────────────
-
-Write-Host "`nInstalling / updating Python-based tools..." -ForegroundColor Cyan
-
-$pythonTools = @(
-    "arjun",
-    "git+https://github.com/0xasm0d3us/paramspider.git",
-    "waymore"
-)
-
-foreach ($pkg in $pythonTools) {
-    Write-Host "Installing/updating: $pkg" -ForegroundColor DarkCyan
-    pipx install $pkg --force
-}
-
-# ────────────────────────────────────────
-#  3. Final checks & instructions
-# ────────────────────────────────────────
-
-Write-Host "`nChecking installed tools..." -ForegroundColor Cyan
-
-$checkTools = @(
-    "subfinder","amass","assetfinder","findomain","httpx","gau","waymore","waybackurls",
-    "katana","hakrawler","gospider","ffuf","nuclei","dalfox","tlsx","dnsx",
-    "fallparams","arjun","paramspider","gf","x8","getJS","linkfinder","qsreplace"
-)
-
-foreach ($tool in $checkTools) {
-    if (Tool-Exists $tool) {
-        Write-Host "$tool → Installed" -ForegroundColor Green
-    } else {
-        Write-Host "$tool → Not found (may require restart or PATH check)" -ForegroundColor Yellow
+    Write-Host "Installing / updating $ToolName ..." -ForegroundColor Cyan -NoNewline
+    try {
+        & go install -v "$RepoPath@latest" 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host " OK" -ForegroundColor Green
+        } else {
+            Write-Host " FAILED" -ForegroundColor Red
+        }
+    }
+    catch {
+        Write-Host " ERROR: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
-Write-Host "`nInstallation / update completed!" -ForegroundColor Green
-Write-Host "Next steps:"
-Write-Host "  1. Close and reopen your terminal / PowerShell"
-Write-Host "  2. Verify PATH includes: $env:USERPROFILE\go\bin"
-Write-Host "  3. Run your recon script: .\recon.ps1 example.com"
-Write-Host ""
-Write-Host "If any tool is still missing, run this installer again after restarting." -ForegroundColor Yellow
+# ─── List of tools and their repositories ───────────────────────────────────────
+$tools = @(
+    @{ Name = "subfinder";   Repo = "github.com/projectdiscovery/subfinder/v2/cmd/subfinder" }
+    @{ Name = "amass";       Repo = "github.com/owasp-amass/amass/v4/..." }
+    @{ Name = "assetfinder"; Repo = "github.com/tomnomnom/assetfinder" }
+    @{ Name = "findomain";   Repo = "github.com/Findomain/Findomain" }
+    @{ Name = "httpx";       Repo = "github.com/projectdiscovery/httpx/cmd/httpx" }
+    @{ Name = "gau";         Repo = "github.com/lc/gau/v2/cmd/gau" }
+    @{ Name = "waymore";     Repo = "github.com/xnl-h4ck3r/waymore" }
+    @{ Name = "waybackurls"; Repo = "github.com/tomnomnom/waybackurls" }
+    @{ Name = "katana";      Repo = "github.com/projectdiscovery/katana/cmd/katana" }
+    @{ Name = "hakrawler";   Repo = "github.com/hakluke/hakrawler" }
+    @{ Name = "gospider";    Repo = "github.com/jaeles-project/gospider" }
+    @{ Name = "ffuf";        Repo = "github.com/ffuf/ffuf/v2" }
+    @{ Name = "nuclei";      Repo = "github.com/projectdiscovery/nuclei/v3/cmd/nuclei" }
+    @{ Name = "dalfox";      Repo = "github.com/hahwul/dalfox/v2" }
+    @{ Name = "tlsx";        Repo = "github.com/projectdiscovery/tlsx/cmd/tlsx" }
+    @{ Name = "dnsx";        Repo = "github.com/projectdiscovery/dnsx/cmd/dnsx" }
+    @{ Name = "arjun";       Repo = "github.com/s0md3v/Arjun" }
+    @{ Name = "paramspider"; Repo = "github.com/devanshbatham/ParamSpider" }
+    @{ Name = "gf";          Repo = "github.com/tomnomnom/gf" }
+    @{ Name = "x8";          Repo = "github.com/Sh1Yo/x8" }
+    @{ Name = "getJS";       Repo = "github.com/003random/getJS" }
+    @{ Name = "linkfinder";  Repo = "github.com/GerbenJavado/LinkFinder" }
+    @{ Name = "qsreplace";   Repo = "github.com/tomnomnom/qsreplace" }
+)
 
-Write-Host "`nHappy hunting (with permission only)!" -ForegroundColor Magenta
-pause
+# ─── Install all tools ──────────────────────────────────────────────────────────
+Write-Host "`nStarting installation / update of tools..." -ForegroundColor Yellow
+
+foreach ($tool in $tools) {
+    Install-Tool -ToolName $tool.Name -RepoPath $tool.Repo
+}
+
+# ─── Final instructions ─────────────────────────────────────────────────────────
+Write-Host "`nInstallation finished." -ForegroundColor Green
+Write-Host "Make sure the following directory is in your PATH:" -ForegroundColor White
+Write-Host "  $env:USERPROFILE\go\bin" -ForegroundColor Cyan
+Write-Host "`nYou can add it permanently by running:" -ForegroundColor White
+Write-Host '  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:USERPROFILE\go\bin", "User")' -ForegroundColor Gray
+Write-Host "`nVerify tools:" -ForegroundColor White
+Write-Host "  subfinder -version" -ForegroundColor Gray
+Write-Host "  amass -version" -ForegroundColor Gray
+Write-Host "  httpx -version" -ForegroundColor Gray
+Write-Host "  nuclei -version" -ForegroundColor Gray
+
+Write-Host "`nHappy hunting! (only on targets you are authorized to test)" -ForegroundColor Magenta

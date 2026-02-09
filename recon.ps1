@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
     Ultimate Recon Framework - Windows Edition
-    Version: 1.6.14
+    Version: 1.6.16
     Purpose: Authorized security testing / Bug Bounty / Penetration Testing ONLY
     License: MIT
     Warning: Explicit written permission required before scanning any target!
@@ -187,31 +187,44 @@ function Step-Subdomains {
         Execute-Tool "amass enum -passive -d $Domain -timeout 1800 -o amass_passive.txt $proxyArg" -ToolName "amass-passive" -OutputFile "amass_passive.txt"
     }
 
-    # Amass active (timeout 30 minutes)
+    # Amass active
     if (-not (Test-Path "amass_active.txt")) {
         Write-Host "[+] Running Amass ACTIVE (timeout 30 minutes)..." -ForegroundColor Yellow
         Execute-Tool "amass enum -active -d $Domain -timeout 1800 -dns-qps $($Config.AmassDNSQPS) -max-dns-queries $($Config.AmassMaxQueries) -o amass_active.txt -src $proxyArg" -ToolName "amass-active" -OutputFile "amass_active.txt"
     }
 
-    # Combine all results into scoped_subs.txt
+    # Combine all results → فقط FQDNهای معتبر (فیلتر قوی)
     if (-not (Test-Path "scoped_subs.txt")) {
         $files = @("subfinder.txt", "amass_passive.txt", "amass_active.txt", "assetfinder.txt", "findomain.txt")
         $all = @()
         
         foreach ($f in $files) {
             if (Test-Path $f) {
-                $content = Get-Content $f -ErrorAction SilentlyContinue | Where-Object { $_ -match '\.' }
+                $content = Get-Content $f -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        # فقط خطوط شبیه دامنه / ساب‌دامنه واقعی
+                        $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' -and
+                        $_ -notmatch '\s' -and
+                        $_ -notmatch '\(' -and
+                        $_ -notmatch '-->' -and
+                        $_ -notmatch '\(Netblock\)' -and
+                        $_ -notmatch '\(ASN\)' -and
+                        $_ -notmatch '\(IPAddress\)' -and
+                        $_ -notmatch 'announces' -and
+                        $_ -notmatch 'contains' -and
+                        $_ -notmatch 'managed_by'
+                    }
                 if ($content) { $all += $content }
-                Write-Host "$f → $($content.Count) lines" -ForegroundColor Cyan
+                Write-Host "$f → $($content.Count) valid FQDN lines" -ForegroundColor Cyan
             }
         }
 
         if ($all.Count -gt 0) {
             $all | Sort-Object -Unique | Out-File "scoped_subs.txt" -Encoding utf8
-            Write-Host "scoped_subs.txt created → $($all.Count) unique subdomains" -ForegroundColor Green
+            Write-Host "scoped_subs.txt created → $($all.Count) unique valid subdomains" -ForegroundColor Green
         } else {
-            Write-Host "No subdomains found from any tool" -ForegroundColor Yellow
-            "# No subdomains discovered" | Out-File "scoped_subs.txt" -Encoding utf8
+            Write-Host "No valid subdomains found after filtering" -ForegroundColor Yellow
+            "# No valid subdomains discovered" | Out-File "scoped_subs.txt" -Encoding utf8
         }
     }
 
@@ -299,9 +312,31 @@ function Step-URLCollection {
         $all | Sort-Object -Unique | Out-File all_urls.txt
     }
 
+    # ─── In-scope filtering (safe & robust regex) ────────────────────────────────
     if (-not (Test-Path "all_urls_inscope.txt")) {
-        $scopeRegex = ($Domain, (Get-Content scoped_subs.txt -ea 0)) -replace '\.', '\.' -join '|'
-        Get-Content all_urls.txt | Where-Object { $_ -match $scopeRegex } | Sort-Object -Unique | Out-File all_urls_inscope.txt
+        # Collect clean domains/subdomains
+        $domainsForRegex = @($Domain)
+        $subdomains = Get-Content "scoped_subs.txt" -ErrorAction SilentlyContinue | 
+            Where-Object { 
+                $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' 
+            }
+
+        $domainsForRegex += $subdomains
+
+        # Build safe regex
+        $scopeParts = $domainsForRegex | ForEach-Object { [regex]::Escape($_) }
+        $scopeRegex = if ($scopeParts) { $scopeParts -join '|' } else { $null }
+
+        if ($scopeRegex) {
+            Write-Host "Filtering in-scope URLs with regex: $scopeRegex" -ForegroundColor DarkGray
+            Get-Content all_urls.txt | 
+                Where-Object { $_ -match $scopeRegex } | 
+                Sort-Object -Unique | 
+                Out-File all_urls_inscope.txt -Encoding utf8
+        } else {
+            Write-Host "No valid scope domains found → copying all URLs as fallback" -ForegroundColor Yellow
+            Copy-Item all_urls.txt all_urls_inscope.txt -Force
+        }
     }
 
     if (Test-Path "all_urls.txt") {

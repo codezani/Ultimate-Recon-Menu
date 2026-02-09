@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
     Ultimate Recon Framework - Windows Edition
-    Version: 1.6.16
+    Version: 1.6.17
     Purpose: Authorized security testing / Bug Bounty / Penetration Testing ONLY
     License: MIT
     Warning: Explicit written permission required before scanning any target!
@@ -238,7 +238,7 @@ function Step-Subdomains {
             Write-Host "Preferring amass_active.txt (better results)" -ForegroundColor Cyan
         }
 
-        Execute-Tool "Get-Content `"$inputForProbe`" | httpx -silent -threads $($Config.HttpxRate) -timeout $($Config.HttpxTimeout) -retries $($Config.HttpxRetries) -title -status-code -ip -tech-detect -o live_subs.txt $proxyArg" -ToolName "httpx-live" -OutputFile "live_subs.txt"
+        Execute-Tool "Get-Content `"$inputForProbe`" | httpx -silent -threads $($Config.HttpxRate) -timeout 15 -retries 3 -title -status-code -ip -tech-detect -o live_subs.txt $proxyArg" -ToolName "httpx-live" -OutputFile "live_subs.txt"
     }
 
     if (Test-Path "live_subs.txt") {
@@ -254,10 +254,26 @@ function Step-LiveHosts {
 
     Log-Step "LiveHosts" "STARTED"
 
-    if (-not (Test-Path "live.json")) {
-        Execute-Tool "httpx -l live_subs.txt -rl $($Config.HttpxRate) -timeout 1800 -retries $($Config.HttpxRetries) -title -tech-detect -status-code -json -o live.json -tls-probe -http2 -vhost $proxyArg" -ToolName "httpx" -OutputFile "live.json"
+    # Clean input to FQDN only (remove https:// and extra info if present)
+    $cleanInput = "live_subs_clean.txt"
+    if (-not (Test-Path $cleanInput)) {
+        Get-Content live_subs.txt | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -match '^https?://([^/\s\[\]]+)') {
+                $matches[1]
+            } elseif ($line -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$') {
+                $line
+            }
+        } | Sort-Object -Unique | Out-File $cleanInput -Encoding utf8
+        Write-Host "Cleaned input to FQDNs: $cleanInput" -ForegroundColor Cyan
     }
 
+    # Run httpx with simple flags
+    if (-not (Test-Path "live.json")) {
+        Execute-Tool "httpx -l $cleanInput -rl $($Config.HttpxRate) -timeout 30 -retries 3 -title -tech-detect -status-code -json -o live.json -follow-redirects -no-fallback $proxyArg" -ToolName "httpx" -OutputFile "live.json"
+    }
+
+    # Extract URLs from JSON
     if ((Test-Path "live.json") -and (-not (Test-Path "live_urls.txt"))) {
         Get-Content live.json | ConvertFrom-Json | 
             Where-Object { $_.status_code -and $_.status_code -lt 500 } | 
@@ -312,18 +328,14 @@ function Step-URLCollection {
         $all | Sort-Object -Unique | Out-File all_urls.txt
     }
 
-    # ─── In-scope filtering (safe & robust regex) ────────────────────────────────
+    # In-scope filtering (safe regex)
     if (-not (Test-Path "all_urls_inscope.txt")) {
-        # Collect clean domains/subdomains
         $domainsForRegex = @($Domain)
         $subdomains = Get-Content "scoped_subs.txt" -ErrorAction SilentlyContinue | 
-            Where-Object { 
-                $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' 
-            }
+            Where-Object { $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' }
 
         $domainsForRegex += $subdomains
 
-        # Build safe regex
         $scopeParts = $domainsForRegex | ForEach-Object { [regex]::Escape($_) }
         $scopeRegex = if ($scopeParts) { $scopeParts -join '|' } else { $null }
 

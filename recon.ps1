@@ -193,7 +193,7 @@ function Step-Subdomains {
         Execute-Tool "amass enum -active -d $Domain -timeout 1800 -dns-qps $($Config.AmassDNSQPS) -max-dns-queries $($Config.AmassMaxQueries) -o amass_active.txt -src $proxyArg" -ToolName "amass-active" -OutputFile "amass_active.txt"
     }
 
-    # Combine all results → فقط FQDNهای معتبر (فیلتر قوی)
+    # Combine all results → only valid FQDNs (strong filter)
     if (-not (Test-Path "scoped_subs.txt")) {
         $files = @("subfinder.txt", "amass_passive.txt", "amass_active.txt", "assetfinder.txt", "findomain.txt")
         $all = @()
@@ -202,7 +202,7 @@ function Step-Subdomains {
             if (Test-Path $f) {
                 $content = Get-Content $f -ErrorAction SilentlyContinue |
                     Where-Object {
-                        # فقط خطوط شبیه دامنه / ساب‌دامنه واقعی
+                        # Only lines that look like valid FQDN / subdomain
                         $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' -and
                         $_ -notmatch '\s' -and
                         $_ -notmatch '\(' -and
@@ -250,7 +250,7 @@ function Step-Subdomains {
 
 function Step-LiveHosts {
     if (-not (Require-File "live_subs.txt" "subdomains")) { return }
-    if (Step-Done "live") { Write-Host "LiveHosts already completed" -ForegroundColor Cyan; return }
+    if (Step-Done "live") { Write-Host "Live Hosts already completed" -ForegroundColor Cyan; return }
 
     Log-Step "LiveHosts" "STARTED"
 
@@ -275,7 +275,7 @@ function Step-LiveHosts {
 
 function Step-URLCollection {
     if (-not (Require-File "live_urls.txt" "livehosts")) { return }
-    if (Step-Done "urls") { Write-Host "URLCollection already completed" -ForegroundColor Cyan; return }
+    if (Step-Done "urls") { Write-Host "URL Collection already completed" -ForegroundColor Cyan; return }
 
     Log-Step "URLCollection" "STARTED"
 
@@ -348,7 +348,7 @@ function Step-URLCollection {
 
 function Step-ParametersAndJS {
     if (-not (Require-File "all_urls.txt" "urls")) { return }
-    if (Step-Done "params_js") { Write-Host "ParametersAndJS already completed" -ForegroundColor Cyan; return }
+    if (Step-Done "params_js") { Write-Host "Parameters and JS analysis already completed" -ForegroundColor Cyan; return }
 
     Log-Step "ParametersAndJS" "STARTED"
 
@@ -408,14 +408,14 @@ function Step-ParametersAndJS {
     if (Test-Path "params_all.txt") {
         Mark-Done "params_js"
         Log-Step "ParametersAndJS" "COMPLETED"
-        Write-Host "ParametersAndJS completed" -ForegroundColor Green
+        Write-Host "Parameters and JS analysis completed" -ForegroundColor Green
     }
 }
 
 function Step-X8Fuzz {
     if (-not (Require-File "live_urls.txt" "livehosts")) { return }
     if (-not (Tool-Exists "x8")) { Write-Host "x8 not found" -ForegroundColor Yellow; return }
-    if (Step-Done "x8") { Write-Host "x8 already completed" -ForegroundColor Cyan; return }
+    if (Step-Done "x8") { Write-Host "x8 fuzzing already completed" -ForegroundColor Cyan; return }
 
     Log-Step "x8" "STARTED"
 
@@ -432,7 +432,7 @@ function Step-X8Fuzz {
     if (Test-Path "x8_results.txt") {
         Mark-Done "x8"
         Log-Step "x8" "COMPLETED"
-        Write-Host "x8 completed" -ForegroundColor Green
+        Write-Host "x8 fuzzing completed" -ForegroundColor Green
     }
 }
 
@@ -456,12 +456,12 @@ function Step-DirectoryBrute {
 
     Mark-Done "ffuf"
     Log-Step "FFUF" "COMPLETED"
-    Write-Host "FFUF completed" -ForegroundColor Green
+    Write-Host "FFUF directory brute completed" -ForegroundColor Green
 }
 
 function Step-NucleiScan {
     if (-not (Require-File "live_urls.txt" "livehosts")) { return }
-    if (Step-Done "nuclei") { Write-Host "Nuclei already completed" -ForegroundColor Cyan; return }
+    if (Step-Done "nuclei") { Write-Host "Nuclei scan already completed" -ForegroundColor Cyan; return }
 
     Log-Step "Nuclei" "STARTED"
 
@@ -472,14 +472,14 @@ function Step-NucleiScan {
     if (Test-Path "nuclei_results.txt") {
         Mark-Done "nuclei"
         Log-Step "Nuclei" "COMPLETED"
-        Write-Host "Nuclei completed" -ForegroundColor Green
+        Write-Host "Nuclei scan completed" -ForegroundColor Green
     }
 }
 
 function Step-XSSScan {
     if (-not (Require-File "all_urls.txt" "urls")) { return }
     if (-not (Tool-Exists "dalfox")) { Write-Host "dalfox not found" -ForegroundColor Yellow; return }
-    if (Step-Done "xss") { Write-Host "XSS already completed" -ForegroundColor Cyan; return }
+    if (Step-Done "xss") { Write-Host "XSS scan already completed" -ForegroundColor Cyan; return }
 
     Log-Step "dalfox" "STARTED"
 
@@ -490,7 +490,7 @@ function Step-XSSScan {
     if (Test-Path "dalfox_results.txt") {
         Mark-Done "xss"
         Log-Step "dalfox" "COMPLETED"
-        Write-Host "XSS completed" -ForegroundColor Green
+        Write-Host "XSS scan completed" -ForegroundColor Green
     }
 }
 
@@ -566,7 +566,7 @@ while ($true) {
         "9"  { Generate-Report }
         "10" { Run-FullAuto }
         "x"  {
-            Write-Host "`nSession ended. Results in: $OutputDir" -ForegroundColor Green
+            Write-Host "`nSession ended. Results saved in: $OutputDir" -ForegroundColor Green
             break
         }
         default { Write-Host "Invalid option" -ForegroundColor Red; Start-Sleep -Seconds 1 }

@@ -18,7 +18,7 @@ PowerShell-based reconnaissance framework for authorized security testing and bu
 
 ## Installation
 1. Clone the repository
-2. Run the install script: `.\Install-ReconTools.ps1`
+2. Run the install script: `.\Installer.ps1`
 3. Run the main script: `.\recon.ps1 example.com`
 
 ## Legal

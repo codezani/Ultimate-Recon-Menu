@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
     Ultimate Recon Framework - Windows Edition
-    Version: 1.6.17
+    Version: 1.7.0
     Purpose: Authorized security testing / Bug Bounty / Penetration Testing ONLY
     License: MIT
     Warning: Explicit written permission required before scanning any target!
@@ -23,6 +23,10 @@ param(
     [switch]$DryRun
 )
 
+# ────────────────────────────── Script Information ──────────────────────────────
+$ScriptVersion = "1.7.0"
+$LastUpdate    = "2026-06-02"
+
 # ────────────────────────────── Validation & Banner ──────────────────────────────
 if ($Domain -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$') {
     Write-Host "ERROR: Invalid domain format (e.g. example.com)" -ForegroundColor Red
@@ -31,21 +35,23 @@ if ($Domain -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$') {
 
 Clear-Host
 Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Red
-Write-Host "       AUTHORIZED SECURITY TESTING ONLY – MAX RECON COVERAGE        " -ForegroundColor Yellow
+Write-Host "       ULTIMATE RECON FRAMEWORK v$ScriptVersion - WINDOWS EDITION       " -ForegroundColor Yellow
 Write-Host " Target : $Domain" -ForegroundColor White
 if ($Proxy) { Write-Host " Proxy  : $Proxy" -ForegroundColor Cyan }
 if ($Auto)  { Write-Host " Mode   : FULL AUTO PIPELINE" -ForegroundColor Green }
 Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Red
 
-if (-not $Auto) { Read-Host "Press Enter to confirm you are authorized to test this target" | Out-Null }
+if (-not $Auto) { 
+    Read-Host "Press Enter to confirm you are authorized to test this target" | Out-Null 
+}
 
 # ────────────────────────────── Configuration ──────────────────────────────
 $Config = @{
     HttpxRate      = 160
-    HttpxTimeout   = 10
-    HttpxRetries   = 2
+    HttpxTimeout   = 15
+    HttpxRetries   = 3
     NucleiRate     = 45
-    NucleiTimeout  = 10
+    NucleiTimeout  = 15
     FFUFThreads    = 40
     FFUFTimeout    = 8
     KatanaDepth    = 6
@@ -55,13 +61,18 @@ $Config = @{
     ArjunThreads   = 12
     X8Threads      = 80
     MaxFFUFTargets = 25
+    NaabuRate      = 1200
     LogFile        = "recon.log"
     
-    AmassTimeout   = 30          # minutes (1800 seconds)
+    AmassTimeout   = 30          # minutes
     AmassDNSQPS    = 100
     AmassMaxQueries= 10000
     JitterMin      = 1
     JitterMax      = 4
+    
+    UseParallel    = $true
+    Screenshot     = $false
+    NucleiTemplates= "http/,cves/,vulnerabilities/,takeovers/,exposed-panels/"
 }
 
 $BaseDir   = $PSScriptRoot
@@ -87,15 +98,15 @@ function Log-Tool {
     Log-Step "$Tool $Action $Extra" "TOOL"
 }
 
-function Tool-Exists { param([string]$n) return $null -ne (Get-Command $n -ErrorAction SilentlyContinue) }
+function Tool-Exists { 
+    param([string]$n) 
+    return $null -ne (Get-Command $n -ErrorAction SilentlyContinue) 
+}
 
 function Execute-Tool {
     param(
-        [Parameter(Mandatory=$true)]
-        [string]$Cmd,
-
+        [Parameter(Mandatory=$true)][string]$Cmd,
         [string]$ToolName = $null,
-
         [string]$OutputFile = $null
     )
 
@@ -114,7 +125,7 @@ function Execute-Tool {
         Invoke-Expression $Cmd
         $success = $true
         Log-Tool $ToolName "FINISHED"
-        Write-Host "$ToolName finished" -ForegroundColor Green
+        Write-Host "$ToolName finished successfully" -ForegroundColor Green
     }
     catch {
         Log-Tool $ToolName "FAILED" "- $($_.Exception.Message)"
@@ -124,12 +135,7 @@ function Execute-Tool {
     if ($OutputFile -and (Test-Path $OutputFile)) {
         $lines = Get-Content $OutputFile -ErrorAction SilentlyContinue
         $count = if ($lines) { $lines.Count } else { 0 }
-        Write-Host "$ToolName output: $count lines in $OutputFile" -ForegroundColor Green
-        
-        if ($count -gt 0) {
-            Write-Host "First 3 lines:" -ForegroundColor Cyan
-            $lines | Select-Object -First 3 | ForEach-Object { Write-Host $_ }
-        }
+        Write-Host "$ToolName output: $count lines → $OutputFile" -ForegroundColor Green
     }
 
     Start-Sleep -Seconds (Get-Random -Minimum $Config.JitterMin -Maximum $Config.JitterMax)
@@ -142,119 +148,101 @@ function Mark-Done { param([string]$n) New-Item ".done_$n" -ItemType File -Force
 function Require-File {
     param([string]$f, [string]$s)
     if (-not (Test-Path $f)) {
-        Write-Host "Missing file: $f  → run step '$s' first" -ForegroundColor Red
+        Write-Host "Missing file: $f  → Please run step '$s' first" -ForegroundColor Red
         return $false
     }
     return $true
 }
 
-# ────────────────────────────── Tool Availability Warning ──────────────────────────────
+# ────────────────────────────── Check Available Tools ──────────────────────────────
 $Tools = @(
     "subfinder","amass","assetfinder","findomain","httpx","gau","waymore","waybackurls",
-    "katana","hakrawler","gospider","ffuf","nuclei","dalfox","tlsx","dnsx",
-    "fallparams","arjun","paramspider","gf","x8","getJS","linkfinder","qsreplace"
+    "katana","hakrawler","gospider","ffuf","nuclei","dalfox","tlsx","dnsx","naabu",
+    "fallparams","arjun","paramspider","gf","x8","getJS","linkfinder","qsreplace",
+    "trufflehog","gitleaks","gowitness","cloud_enum"
 )
 
 foreach ($t in $Tools) {
     if (-not (Tool-Exists $t)) {
-        Write-Host "Tool not found: $t" -ForegroundColor Yellow
+        Write-Host "Warning: Tool not found - $t" -ForegroundColor Yellow
     }
 }
 
-# ────────────────────────────── Recon Steps ──────────────────────────────
+# ────────────────────────────── Recon Functions ──────────────────────────────
 
 function Step-Subdomains {
     if (Step-Done "subs") { 
-        Write-Host "Subdomains already completed" -ForegroundColor Cyan
+        Write-Host "Subdomains enumeration already completed" -ForegroundColor Cyan
         return 
     }
 
-    Log-Step "Subdomains" "STARTED"
+    Log-Step "Subdomains Enumeration" "STARTED"
 
-    # Passive tools
+    # Passive Enumeration
     if (-not (Test-Path "subfinder.txt")) { 
-        Execute-Tool "subfinder -d $Domain -all -silent -o subfinder.txt $proxyArg" -ToolName "subfinder" -OutputFile "subfinder.txt" 
+        Execute-Tool "subfinder -d $Domain -all -silent -o subfinder.txt $proxyArg" -OutputFile "subfinder.txt" 
     }
     if (-not (Test-Path "assetfinder.txt")) { 
-        Execute-Tool "assetfinder --subs-only $Domain > assetfinder.txt" -ToolName "assetfinder" -OutputFile "assetfinder.txt" 
+        Execute-Tool "assetfinder --subs-only $Domain > assetfinder.txt" -OutputFile "assetfinder.txt" 
     }
     if (Tool-Exists "findomain" -and -not (Test-Path "findomain.txt")) { 
-        Execute-Tool "findomain -t $Domain -q -u findomain.txt" -ToolName "findomain" -OutputFile "findomain.txt" 
+        Execute-Tool "findomain -t $Domain -q -u findomain.txt" -OutputFile "findomain.txt" 
     }
 
-    # Amass passive
+    # Amass Passive + Active
     if (-not (Test-Path "amass_passive.txt")) {
-        Execute-Tool "amass enum -passive -d $Domain -timeout 1800 -o amass_passive.txt $proxyArg" -ToolName "amass-passive" -OutputFile "amass_passive.txt"
+        Execute-Tool "amass enum -passive -d $Domain -timeout 1800 -o amass_passive.txt $proxyArg"
     }
-
-    # Amass active
     if (-not (Test-Path "amass_active.txt")) {
-        Write-Host "[+] Running Amass ACTIVE (timeout 30 minutes)..." -ForegroundColor Yellow
-        Execute-Tool "amass enum -active -d $Domain -timeout 1800 -dns-qps $($Config.AmassDNSQPS) -max-dns-queries $($Config.AmassMaxQueries) -o amass_active.txt -src $proxyArg" -ToolName "amass-active" -OutputFile "amass_active.txt"
+        Write-Host "[+] Running Amass ACTIVE (may take up to 30 minutes)..." -ForegroundColor Yellow
+        Execute-Tool "amass enum -active -d $Domain -timeout 1800 -dns-qps $($Config.AmassDNSQPS) -max-dns-queries $($Config.AmassMaxQueries) -o amass_active.txt $proxyArg"
     }
 
-    # Combine all results → only valid FQDNs (strong filter)
+    # Combine and filter valid subdomains
     if (-not (Test-Path "scoped_subs.txt")) {
         $files = @("subfinder.txt", "amass_passive.txt", "amass_active.txt", "assetfinder.txt", "findomain.txt")
         $all = @()
-        
         foreach ($f in $files) {
             if (Test-Path $f) {
-                $content = Get-Content $f -ErrorAction SilentlyContinue |
-                    Where-Object {
-                        # Only lines that look like valid FQDN / subdomain
-                        $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' -and
-                        $_ -notmatch '\s' -and
-                        $_ -notmatch '\(' -and
-                        $_ -notmatch '-->' -and
-                        $_ -notmatch '\(Netblock\)' -and
-                        $_ -notmatch '\(ASN\)' -and
-                        $_ -notmatch '\(IPAddress\)' -and
-                        $_ -notmatch 'announces' -and
-                        $_ -notmatch 'contains' -and
-                        $_ -notmatch 'managed_by'
-                    }
+                $content = Get-Content $f -ErrorAction SilentlyContinue | Where-Object {
+                    $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' -and
+                    $_ -notmatch '\s' -and $_ -notmatch '\(' -and $_ -notmatch '-->'
+                }
                 if ($content) { $all += $content }
-                Write-Host "$f → $($content.Count) valid FQDN lines" -ForegroundColor Cyan
             }
         }
-
-        if ($all.Count -gt 0) {
-            $all | Sort-Object -Unique | Out-File "scoped_subs.txt" -Encoding utf8
-            Write-Host "scoped_subs.txt created → $($all.Count) unique valid subdomains" -ForegroundColor Green
-        } else {
-            Write-Host "No valid subdomains found after filtering" -ForegroundColor Yellow
-            "# No valid subdomains discovered" | Out-File "scoped_subs.txt" -Encoding utf8
-        }
+        $all | Sort-Object -Unique | Out-File "scoped_subs.txt" -Encoding utf8
+        Write-Host "Found $($all.Count) unique subdomains" -ForegroundColor Green
     }
 
-    # Final live probing with httpx
+    # Live hosts with httpx
     if (-not (Test-Path "live_subs.txt")) {
-        Write-Host "[+] Probing live subdomains with httpx..." -ForegroundColor Yellow
-        
-        $inputForProbe = "scoped_subs.txt"
-        if ((Test-Path "amass_active.txt") -and ((Get-Item "amass_active.txt").Length -gt 0)) {
-            $inputForProbe = "amass_active.txt"
-            Write-Host "Preferring amass_active.txt (better results)" -ForegroundColor Cyan
-        }
-
-        Execute-Tool "Get-Content `"$inputForProbe`" | httpx -silent -threads $($Config.HttpxRate) -timeout 15 -retries 3 -title -status-code -ip -tech-detect -o live_subs.txt $proxyArg" -ToolName "httpx-live" -OutputFile "live_subs.txt"
+        $inputForProbe = if (Test-Path "amass_active.txt") { "amass_active.txt" } else { "scoped_subs.txt" }
+        Execute-Tool "Get-Content `"$inputForProbe`" | httpx -silent -threads $($Config.HttpxRate) -timeout 15 -retries 3 -title -status-code -ip -tech-detect -o live_subs.txt $proxyArg"
     }
 
-    if (Test-Path "live_subs.txt") {
-        Mark-Done "subs"
-        Log-Step "Subdomains" "COMPLETED"
-        Write-Host "Subdomains & Live resolution completed" -ForegroundColor Green
+    # Additional enhancements
+    if (Tool-Exists "dnsx" -and -not (Test-Path "dnsx.txt")) {
+        Execute-Tool "dnsx -l scoped_subs.txt -silent -a -aaaa -cname -resp -o dnsx.txt"
     }
+    if (Tool-Exists "tlsx" -and -not (Test-Path "tlsx.txt")) {
+        Execute-Tool "tlsx -l live_subs.txt -silent -san -cn -o tlsx.txt"
+    }
+    if (-not (Test-Path "takeover.txt")) {
+        Execute-Tool "nuclei -l live_subs.txt -t http/takeovers/ -o takeover.txt -silent"
+    }
+
+    Mark-Done "subs"
+    Log-Step "Subdomains Enumeration" "COMPLETED"
+    Write-Host "Subdomains step completed" -ForegroundColor Green
 }
 
 function Step-LiveHosts {
     if (-not (Require-File "live_subs.txt" "subdomains")) { return }
     if (Step-Done "live") { Write-Host "Live Hosts already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "LiveHosts" "STARTED"
+    Log-Step "Live Hosts Probing" "STARTED"
 
-    # Clean input to FQDN only (remove https:// and extra info if present)
     $cleanInput = "live_subs_clean.txt"
     if (-not (Test-Path $cleanInput)) {
         Get-Content live_subs.txt | ForEach-Object {
@@ -265,163 +253,118 @@ function Step-LiveHosts {
                 $line
             }
         } | Sort-Object -Unique | Out-File $cleanInput -Encoding utf8
-        Write-Host "Cleaned input to FQDNs: $cleanInput" -ForegroundColor Cyan
     }
 
-    # Run httpx with simple flags
     if (-not (Test-Path "live.json")) {
-        Execute-Tool "httpx -l $cleanInput -rl $($Config.HttpxRate) -timeout 30 -retries 3 -title -tech-detect -status-code -json -o live.json -follow-redirects -no-fallback $proxyArg" -ToolName "httpx" -OutputFile "live.json"
+        Execute-Tool "httpx -l $cleanInput -rl $($Config.HttpxRate) -timeout 30 -retries 3 -title -tech-detect -status-code -web-server -hash sha256 -json -o live.json -follow-redirects $proxyArg"
     }
 
-    # Extract URLs from JSON
     if ((Test-Path "live.json") -and (-not (Test-Path "live_urls.txt"))) {
         Get-Content live.json | ConvertFrom-Json | 
             Where-Object { $_.status_code -and $_.status_code -lt 500 } | 
             Select-Object -ExpandProperty url | 
             Out-File live_urls.txt -Encoding utf8
-        Write-Host "Extracted live URLs to live_urls.txt" -ForegroundColor Cyan
     }
 
-    if (Test-Path "live_urls.txt") {
-        Mark-Done "live"
-        Log-Step "LiveHosts" "COMPLETED"
-        Write-Host "LiveHosts completed" -ForegroundColor Green
+    if (Tool-Exists "naabu") {
+        Execute-Tool "naabu -l live_subs.txt -top-ports 1000 -rate $($Config.NaabuRate) -o ports.txt"
     }
+
+    Mark-Done "live"
+    Log-Step "Live Hosts" "COMPLETED"
+    Write-Host "Live Hosts probing completed" -ForegroundColor Green
 }
 
 function Step-URLCollection {
     if (-not (Require-File "live_urls.txt" "livehosts")) { return }
     if (Step-Done "urls") { Write-Host "URL Collection already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "URLCollection" "STARTED"
+    Log-Step "URL Collection" "STARTED"
 
     if (Tool-Exists "gau" -and -not (Test-Path "gau.txt")) { 
-        Execute-Tool "gau $Domain --subs --blacklist png,jpg,woff,css,js > gau.txt" -ToolName "gau" -OutputFile "gau.txt" 
+        Execute-Tool "gau $Domain --subs --blacklist png,jpg,woff,css,js > gau.txt" 
     }
-
     if (Tool-Exists "waymore" -and -not (Test-Path "waymore.txt")) { 
-        Execute-Tool "waymore -i $Domain -oU waymore.txt" -ToolName "waymore" -OutputFile "waymore.txt" 
+        Execute-Tool "waymore -i $Domain -oU waymore.txt" 
     }
-
     if (Tool-Exists "waybackurls" -and -not (Test-Path "wayback.txt")) { 
-        Execute-Tool "waybackurls $Domain > wayback.txt" -ToolName "waybackurls" -OutputFile "wayback.txt" 
+        Execute-Tool "waybackurls $Domain > wayback.txt" 
     }
-
     if (-not (Test-Path "katana.txt")) { 
-        Execute-Tool "katana -list live_urls.txt -d $($Config.KatanaDepth) -jc -silent -o katana.txt -timeout 1800 $proxyArg" -ToolName "katana" -OutputFile "katana.txt" 
+        Execute-Tool "katana -list live_urls.txt -d $($Config.KatanaDepth) -jc -silent -o katana.txt -timeout 1800 $proxyArg" 
     }
-
     if (Tool-Exists "hakrawler" -and -not (Test-Path "hakrawler.txt")) {
-        Execute-Tool "Get-Content live_urls.txt | hakrawler -d $($Config.HakrawlerDepth) > hakrawler.txt" -ToolName "hakrawler" -OutputFile "hakrawler.txt"
+        Execute-Tool "Get-Content live_urls.txt | hakrawler -d $($Config.HakrawlerDepth) > hakrawler.txt"
     }
-
     if (Tool-Exists "gospider" -and -not (Test-Path "gospider_urls.txt")) {
         Remove-Item "gospider_out" -Recurse -Force -ErrorAction SilentlyContinue
-        Execute-Tool "gospider -S live_urls.txt -o gospider_out -c $($Config.GospiderThreads) -d $($Config.GospiderDepth) -q --other-source" -ToolName "gospider"
+        Execute-Tool "gospider -S live_urls.txt -o gospider_out -c $($Config.GospiderThreads) -d $($Config.GospiderDepth) -q --other-source"
         Get-ChildItem "gospider_out" -Recurse -File | Get-Content | Sort-Object -Unique | Out-File gospider_urls.txt
     }
 
+    # Merge all URLs
     if (-not (Test-Path "all_urls.txt")) {
         $files = @("gau.txt","waymore.txt","wayback.txt","katana.txt","hakrawler.txt","gospider_urls.txt")
         $all = @()
-        foreach ($f in $files) { if (Test-Path $f) { $all += Get-Content $f -ea 0 } }
+        foreach ($f in $files) { 
+            if (Test-Path $f) { $all += Get-Content $f -ea 0 } 
+        }
         $all | Sort-Object -Unique | Out-File all_urls.txt
     }
 
-    # In-scope filtering (safe regex)
+    # In-scope filtering
     if (-not (Test-Path "all_urls_inscope.txt")) {
-        $domainsForRegex = @($Domain)
-        $subdomains = Get-Content "scoped_subs.txt" -ErrorAction SilentlyContinue | 
-            Where-Object { $_ -match '^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$' }
-
-        $domainsForRegex += $subdomains
-
-        $scopeParts = $domainsForRegex | ForEach-Object { [regex]::Escape($_) }
-        $scopeRegex = if ($scopeParts) { $scopeParts -join '|' } else { $null }
-
-        if ($scopeRegex) {
-            Write-Host "Filtering in-scope URLs with regex: $scopeRegex" -ForegroundColor DarkGray
-            Get-Content all_urls.txt | 
-                Where-Object { $_ -match $scopeRegex } | 
-                Sort-Object -Unique | 
-                Out-File all_urls_inscope.txt -Encoding utf8
-        } else {
-            Write-Host "No valid scope domains found → copying all URLs as fallback" -ForegroundColor Yellow
-            Copy-Item all_urls.txt all_urls_inscope.txt -Force
-        }
+        $scopeParts = @($Domain) + (Get-Content "scoped_subs.txt" -ea 0)
+        $scopeRegex = ($scopeParts | ForEach-Object { [regex]::Escape($_) }) -join '|'
+        Get-Content all_urls.txt | 
+            Where-Object { $_ -match $scopeRegex } | 
+            Sort-Object -Unique | 
+            Out-File all_urls_inscope.txt -Encoding utf8
     }
 
-    if (Test-Path "all_urls.txt") {
-        Mark-Done "urls"
-        Log-Step "URLCollection" "COMPLETED"
-        Write-Host "URLCollection completed – all_urls.txt ready" -ForegroundColor Green
-    }
+    Mark-Done "urls"
+    Log-Step "URL Collection" "COMPLETED"
+    Write-Host "URL Collection completed" -ForegroundColor Green
 }
 
 function Step-ParametersAndJS {
     if (-not (Require-File "all_urls.txt" "urls")) { return }
     if (Step-Done "params_js") { Write-Host "Parameters and JS analysis already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "ParametersAndJS" "STARTED"
-
+    Log-Step "Parameters and JS Analysis" "STARTED"
     New-Item -ItemType Directory -Force -Path "params_js" | Out-Null
 
     $arjunInput = "all_urls.txt"
-    if (Test-Path "all_urls.txt") {
-        $bytes = Get-Content "all_urls.txt" -Encoding Byte -ReadCount 2 -TotalCount 2 -ErrorAction SilentlyContinue
-        if ($bytes -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
-            Write-Host "UTF-16 BOM detected → converting to UTF-8" -ForegroundColor Yellow
-            Get-Content "all_urls.txt" -Raw | Set-Content "all_urls_utf8.txt" -Encoding UTF8
-            $arjunInput = "all_urls_utf8.txt"
-        }
-    }
 
     if (Tool-Exists "fallparams" -and -not (Test-Path "params_js/fall.txt")) {
-        if ((Test-Path $arjunInput) -and ((Get-Content $arjunInput -First 1 -ErrorAction SilentlyContinue))) {
-            Execute-Tool "fallparams -u $arjunInput -c -d 3 -t 20 -o params_js/fall.txt" -ToolName "fallparams" -OutputFile "params_js/fall.txt"
-        }
+        Execute-Tool "fallparams -u $arjunInput -c -d 3 -t 20 -o params_js/fall.txt"
     }
-
     if (Tool-Exists "arjun" -and -not (Test-Path "params_js/arjun.json")) {
-        Execute-Tool "arjun -i $arjunInput -t $($Config.ArjunThreads) -oT params_js/arjun.json" -ToolName "arjun" -OutputFile "params_js/arjun.json"
+        Execute-Tool "arjun -i $arjunInput -t $($Config.ArjunThreads) -oT params_js/arjun.json"
     }
-
     if (Tool-Exists "paramspider" -and -not (Test-Path "params_js/paramspider.txt")) {
-        Execute-Tool "paramspider -d $Domain > params_js/paramspider.txt" -ToolName "paramspider" -OutputFile "params_js/paramspider.txt"
+        Execute-Tool "paramspider -d $Domain > params_js/paramspider.txt"
     }
 
+    # Combine parameters
     if (-not (Test-Path "params_all.txt")) {
-        Get-ChildItem "params_js" -File -Filter "*.txt" -ErrorAction SilentlyContinue | 
-            Get-Content | Sort-Object -Unique | Out-File params_all.txt
+        Get-ChildItem "params_js" -File -Filter "*.txt" -ea 0 | Get-Content | Sort-Object -Unique | Out-File params_all.txt
     }
 
     if (Tool-Exists "getJS" -and -not (Test-Path "params_js/js_files.txt")) {
-        Execute-Tool "Get-Content all_urls.txt | getJS --complete > params_js/js_files.txt" -ToolName "getJS" -OutputFile "params_js/js_files.txt"
+        Execute-Tool "Get-Content all_urls.txt | getJS --complete > params_js/js_files.txt"
     }
-
     if (Tool-Exists "linkfinder" -and (Test-Path "params_js/js_files.txt") -and -not (Test-Path "params_js/endpoints.txt")) {
-        Execute-Tool "Get-Content params_js/js_files.txt | linkfinder -o cli -d > params_js/endpoints.txt" -ToolName "linkfinder" -OutputFile "params_js/endpoints.txt"
-    }
-
-    if (Tool-Exists "gf") {
-        New-Item -ItemType Directory -Force -Path "gf_patterns" | Out-Null
-        @("secret","api","token","aws","firebase","takeover","jsvar","debug_page") | ForEach-Object {
-            $patternFile = "gf_patterns/$_.txt"
-            if (-not (Test-Path $patternFile)) {
-                Execute-Tool "Get-Content all_urls.txt | gf $_ | Sort-Object -Unique | Out-File $patternFile" -ToolName "gf-$_" -OutputFile $patternFile
-            }
-        }
+        Execute-Tool "Get-Content params_js/js_files.txt | linkfinder -o cli -d > params_js/endpoints.txt"
     }
 
     if (Tool-Exists "qsreplace" -and -not (Test-Path "params_js/urls_with_fuzz.txt")) {
-        Execute-Tool "Get-Content all_urls.txt | qsreplace `"FUZZ`" > params_js/urls_with_fuzz.txt" -ToolName "qsreplace" -OutputFile "params_js/urls_with_fuzz.txt"
+        Execute-Tool "Get-Content all_urls.txt | qsreplace `"FUZZ`" > params_js/urls_with_fuzz.txt"
     }
 
-    if (Test-Path "params_all.txt") {
-        Mark-Done "params_js"
-        Log-Step "ParametersAndJS" "COMPLETED"
-        Write-Host "Parameters and JS analysis completed" -ForegroundColor Green
-    }
+    Mark-Done "params_js"
+    Log-Step "ParametersAndJS" "COMPLETED"
+    Write-Host "Parameters and JS analysis completed" -ForegroundColor Green
 }
 
 function Step-X8Fuzz {
@@ -429,32 +372,35 @@ function Step-X8Fuzz {
     if (-not (Tool-Exists "x8")) { Write-Host "x8 not found" -ForegroundColor Yellow; return }
     if (Step-Done "x8") { Write-Host "x8 fuzzing already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "x8" "STARTED"
+    Log-Step "x8 Parameter Fuzzing" "STARTED"
 
     $wordlist = if (Test-Path "params_all.txt") { "params_all.txt" } else { "$WordlistDir/params-top.txt" }
-    if (-not (Test-Path $wordlist)) { Write-Host "No wordlist for x8" -ForegroundColor Yellow; return }
+    if (-not (Test-Path $wordlist)) { 
+        Write-Host "No wordlist found for x8" -ForegroundColor Yellow
+        return 
+    }
 
     Get-Content live_urls.txt | ForEach-Object {
         $url = $_.Trim()
         if ($url) {
-            Execute-Tool "x8 -u `"$url`" -w `"$wordlist`" -t $($Config.X8Threads) --append -o x8_results.txt $proxyArg" -ToolName "x8"
+            Execute-Tool "x8 -u `"$url`" -w `"$wordlist`" -t $($Config.X8Threads) --append -o x8_results.txt $proxyArg"
         }
     }
 
-    if (Test-Path "x8_results.txt") {
-        Mark-Done "x8"
-        Log-Step "x8" "COMPLETED"
-        Write-Host "x8 fuzzing completed" -ForegroundColor Green
-    }
+    Mark-Done "x8"
+    Log-Step "x8 Fuzzing" "COMPLETED"
 }
 
 function Step-DirectoryBrute {
     if (-not (Require-File "live_urls.txt" "livehosts")) { return }
     $wordlist = Join-Path $BaseDir "$WordlistDir\dir-medium.txt"
-    if (-not (Test-Path $wordlist)) { Write-Host "Directory wordlist missing" -ForegroundColor Yellow; return }
+    if (-not (Test-Path $wordlist)) { 
+        Write-Host "Directory wordlist missing" -ForegroundColor Yellow
+        return 
+    }
     if (Step-Done "ffuf") { Write-Host "FFUF already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "FFUF" "STARTED"
+    Log-Step "FFUF Directory Brute Force" "STARTED"
 
     Get-Content live_urls.txt -First $Config.MaxFFUFTargets | ForEach-Object {
         $url = $_.Trim()
@@ -462,30 +408,28 @@ function Step-DirectoryBrute {
         $safe = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($url)) -replace '[=/+]', ''
         $outFile = "ffuf_$safe.json"
         if (-not (Test-Path $outFile)) {
-            Execute-Tool "ffuf -u `"$url`FUZZ`" -w `"$wordlist`" -t $($Config.FFUFThreads) -timeout 1800 -mc 200,301,302,307,308,401,403 -ac -r -o $outFile $proxyArg" -ToolName "ffuf-$safe" -OutputFile $outFile
+            Execute-Tool "ffuf -u `"$url`FUZZ`" -w `"$wordlist`" -t $($Config.FFUFThreads) -timeout 1800 -mc 200,301,302,307,308,401,403 -ac -r -o $outFile $proxyArg"
         }
     }
 
     Mark-Done "ffuf"
-    Log-Step "FFUF" "COMPLETED"
-    Write-Host "FFUF directory brute completed" -ForegroundColor Green
+    Log-Step "FFUF Directory Brute" "COMPLETED"
+    Write-Host "Directory brute force completed" -ForegroundColor Green
 }
 
 function Step-NucleiScan {
     if (-not (Require-File "live_urls.txt" "livehosts")) { return }
     if (Step-Done "nuclei") { Write-Host "Nuclei scan already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "Nuclei" "STARTED"
+    Log-Step "Nuclei Vulnerability Scan" "STARTED"
 
     if (-not (Test-Path "nuclei_results.txt")) {
-        Execute-Tool "nuclei -l live_urls.txt -severity $NucleiSeverity -rl $($Config.NucleiRate) -timeout 1800 -o nuclei_results.txt $proxyArg" -ToolName "nuclei" -OutputFile "nuclei_results.txt"
+        Execute-Tool "nuclei -l live_urls.txt -severity $NucleiSeverity -rl $($Config.NucleiRate) -timeout 1800 -o nuclei_results.txt $proxyArg"
     }
 
-    if (Test-Path "nuclei_results.txt") {
-        Mark-Done "nuclei"
-        Log-Step "Nuclei" "COMPLETED"
-        Write-Host "Nuclei scan completed" -ForegroundColor Green
-    }
+    Mark-Done "nuclei"
+    Log-Step "Nuclei Scan" "COMPLETED"
+    Write-Host "Nuclei scan completed" -ForegroundColor Green
 }
 
 function Step-XSSScan {
@@ -493,41 +437,92 @@ function Step-XSSScan {
     if (-not (Tool-Exists "dalfox")) { Write-Host "dalfox not found" -ForegroundColor Yellow; return }
     if (Step-Done "xss") { Write-Host "XSS scan already completed" -ForegroundColor Cyan; return }
 
-    Log-Step "dalfox" "STARTED"
+    Log-Step "Dalfox XSS Scan" "STARTED"
 
     if (-not (Test-Path "dalfox_results.txt")) {
-        Execute-Tool "Get-Content all_urls.txt | dalfox pipe --only-poc --delay 300 -o dalfox_results.txt" -ToolName "dalfox" -OutputFile "dalfox_results.txt"
+        Execute-Tool "Get-Content all_urls.txt | dalfox pipe --only-poc --delay 300 -o dalfox_results.txt"
     }
 
-    if (Test-Path "dalfox_results.txt") {
-        Mark-Done "xss"
-        Log-Step "dalfox" "COMPLETED"
-        Write-Host "XSS scan completed" -ForegroundColor Green
-    }
+    Mark-Done "xss"
+    Log-Step "XSS Scan" "COMPLETED"
+    Write-Host "XSS scan completed" -ForegroundColor Green
 }
 
+# ────────────────────────────── New Enhanced Modules ──────────────────────────────
+
+function Step-CloudEnum {
+    if (Step-Done "cloud") { return }
+    Log-Step "Cloud Enumeration" "STARTED"
+    if (Tool-Exists "cloud_enum") {
+        Execute-Tool "cloud_enum -k $Domain -l cloud_results.txt"
+    }
+    Mark-Done "cloud"
+}
+
+function Step-Screenshots {
+    if (-not $Config.Screenshot) { return }
+    if (Step-Done "screenshot") { return }
+    New-Item -ItemType Directory -Force -Path "screenshots" | Out-Null
+    if (Tool-Exists "gowitness") {
+        Execute-Tool "gowitness file -f live_urls.txt -D screenshots/ --threads 20"
+    }
+    Mark-Done "screenshot"
+}
+
+function Step-SecretScan {
+    if (-not (Test-Path "all_urls.txt")) { return }
+    Log-Step "Secret Scanning" "STARTED"
+    if (Tool-Exists "trufflehog") {
+        Execute-Tool "trufflehog filesystem . --json > secrets.json"
+    }
+    Mark-Done "secret"
+}
+
+# ────────────────────────────── Advanced Report ──────────────────────────────
 function Generate-Report {
-    Log-Step "Report" "STARTED"
+    Log-Step "Report Generation" "STARTED"
 
-    $files = @("scoped_subs.txt","live_subs.txt","live_urls.txt","all_urls.txt","params_all.txt","x8_results.txt","nuclei_results.txt","dalfox_results.txt")
-    $html = "<html><head><meta charset='utf-8'><title>Recon Report - $Domain</title><style>body{background:#0d1117;color:#c9d1d9;font-family:Consolas;padding:20px;} h1{color:#58a6ff;text-align:center;} h2{color:#f0883e;} pre{background:#010409;padding:15px;border-radius:8px;max-height:400px;overflow:auto;}</style></head><body><h1>Recon Report – $Domain</h1><p>Generated: $(Get-Date)</p>"
+    $stats = @{
+        Subdomains     = (Get-Content scoped_subs.txt -ea 0 | Measure-Object -Line).Lines
+        LiveHosts      = (Get-Content live_urls.txt -ea 0 | Measure-Object -Line).Lines
+        TotalURLs      = (Get-Content all_urls.txt -ea 0 | Measure-Object -Line).Lines
+        NucleiCritical = (Select-String -Path nuclei_results.txt -Pattern "\[critical\]" -ea 0 | Measure-Object).Count
+        Takeovers      = (Get-Content takeover.txt -ea 0 | Measure-Object -Line).Lines
+    }
 
+    $html = @"
+<html><head><meta charset='utf-8'><title>Recon Report - $Domain</title>
+<style>
+    body {background:#0d1117;color:#c9d1d9;font-family:Consolas;padding:20px;}
+    h1 {color:#58a6ff;text-align:center;}
+    h2 {color:#f0883e;}
+    pre {background:#010409;padding:15px;border-radius:8px;overflow:auto;}
+</style></head>
+<body>
+<h1>Ultimate Recon Report – $Domain (v$ScriptVersion)</h1>
+<p>Generated: $(Get-Date)</p>
+<h2>Statistics</h2><pre>$($stats | ConvertTo-Json -Depth 3)</pre>
+"@
+
+    $files = @("scoped_subs.txt","live_subs.txt","live_urls.txt","all_urls.txt","params_all.txt","nuclei_results.txt","takeover.txt","dalfox_results.txt")
     foreach ($f in $files) {
         if (Test-Path $f) {
             $count = (Get-Content $f -ea 0 | Measure-Object -Line).Lines
-            $content = Get-Content $f -First 300 -ea 0 | Out-String
+            $content = Get-Content $f -First 250 -ea 0 | Out-String
             $html += "<h2>$f ($count lines)</h2><pre>$content</pre>"
         }
     }
-    $html += "</body></html>"
-    $html | Out-File report.html -Encoding utf8
 
-    Log-Step "Report" "COMPLETED"
-    Write-Host "Report generated: report.html" -ForegroundColor Green
+    $html += "</body></html>"
+    $html | Out-File "report_$((Get-Date).ToString('yyyyMMdd_HHmm')).html" -Encoding utf8
+
+    Write-Host "Full HTML Report generated successfully!" -ForegroundColor Green
 }
 
+# ────────────────────────────── Full Auto Pipeline ──────────────────────────────
 function Run-FullAuto {
-    Write-Host "FULL AUTO started" -ForegroundColor Magenta
+    Write-Host "Starting FULL AUTO PIPELINE v$ScriptVersion" -ForegroundColor Magenta
+    
     Step-Subdomains
     Step-LiveHosts
     Step-URLCollection
@@ -536,8 +531,12 @@ function Run-FullAuto {
     Step-DirectoryBrute
     Step-NucleiScan
     Step-XSSScan
+    Step-CloudEnum
+    Step-Screenshots
+    Step-SecretScan
     Generate-Report
-    Write-Host "FULL AUTO finished" -ForegroundColor Magenta
+
+    Write-Host "FULL AUTO PIPELINE COMPLETED SUCCESSFULLY!" -ForegroundColor Magenta
 }
 
 # ────────────────────────────── Main Menu ──────────────────────────────
@@ -549,18 +548,20 @@ if ($Auto) {
 while ($true) {
     Clear-Host
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host " Ultimate Recon Framework - $Domain" -ForegroundColor White
+    Write-Host " Ultimate Recon Framework v$ScriptVersion - $Domain" -ForegroundColor White
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host " 1  Subdomains Enumeration (Amass active + resolve)"
-    Write-Host " 2  Live Hosts Probing"
+    Write-Host " 1  Subdomains Enumeration"
+    Write-Host " 2  Live Hosts + Port Scan"
     Write-Host " 3  URL Collection"
     Write-Host " 4  Parameters + JS Analysis"
     Write-Host " 5  x8 Fuzzing"
-    Write-Host " 6  FFUF Directories"
-    Write-Host " 7  Nuclei Scan"
-    Write-Host " 8  XSS (dalfox)"
-    Write-Host " 9  Generate Report"
-    Write-Host "10  FULL AUTO"
+    Write-Host " 6  FFUF Directory Brute"
+    Write-Host " 7  Nuclei Vulnerability Scan"
+    Write-Host " 8  XSS Scan (dalfox)"
+    Write-Host " 9  Cloud Enum + Secret Scan"
+    Write-Host "10  Take Screenshots"
+    Write-Host "11  Generate Full Report"
+    Write-Host "12  FULL AUTO (All Steps)"
     Write-Host " x  Exit"
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
 
@@ -575,17 +576,18 @@ while ($true) {
         "6"  { Step-DirectoryBrute }
         "7"  { Step-NucleiScan }
         "8"  { Step-XSSScan }
-        "9"  { Generate-Report }
-        "10" { Run-FullAuto }
-        "x"  {
-            Write-Host "`nSession ended. Results saved in: $OutputDir" -ForegroundColor Green
-            break
+        "9"  { Step-CloudEnum; Step-SecretScan }
+        "10" { Step-Screenshots }
+        "11" { Generate-Report }
+        "12" { Run-FullAuto }
+        "x"  { 
+            Write-Host "`nSession ended. All results saved in: $OutputDir" -ForegroundColor Green
+            break 
         }
         default { Write-Host "Invalid option" -ForegroundColor Red; Start-Sleep -Seconds 1 }
     }
 
     if ($choice -ne "x") {
-        Write-Host "`nPress Enter to continue..." -ForegroundColor Cyan
-        Read-Host | Out-Null
+        Read-Host "`nPress Enter to continue..."
     }
 }

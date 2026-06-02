@@ -1,69 +1,164 @@
-# install-tools.ps1
-# =============================================================================
-# Ultimate Recon Tools Installer - Windows
-# Purpose: Install or update common recon tools used in the framework
-# Version: 1.0
-# License: MIT
-# Requirements: Go 1.18+ installed, GOPATH/bin in PATH
-# =============================================================================
+#Requires -RunAsAdministrator
+<#
+    Ultimate Recon Framework - Tools Installer
+    Version: 1.7.0
+    Installs all required tools for the recon script
+#>
 
-Write-Host "Ultimate Recon Tools Installer" -ForegroundColor Cyan
-Write-Host "This script will install/update the following tools:" -ForegroundColor White
-Write-Host "subfinder  amass  assetfinder  findomain  httpx  gau  waymore  waybackurls"
-Write-Host "katana  hakrawler  gospider  ffuf  nuclei  dalfox  tlsx  dnsx"
-Write-Host "arjun  paramspider  gf  x8  getJS  linkfinder  qsreplace" -ForegroundColor Gray
-Write-Host ""
+Clear-Host
+Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "       Ultimate Recon Tools Installer v1.7.0 (Windows)       " -ForegroundColor Yellow
+Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 
-if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-    Write-Host "ERROR: Go is not installed or not in PATH." -ForegroundColor Red
-    Write-Host "Install Go from https://go.dev/dl/" -ForegroundColor Yellow
-    exit 1
-}
+$GoBin = "$env:USERPROFILE\go\bin"
+$env:PATH += ";$GoBin;C:\Program Files\Go\bin"
 
-$goBin = "$env:USERPROFILE\go\bin"
-if (-not (Test-Path $goBin)) { New-Item -ItemType Directory -Force -Path $goBin | Out-Null }
-
-function Install-Tool {
-    param([string]$ToolName, [string]$RepoPath)
-    Write-Host "Installing / updating $ToolName ..." -ForegroundColor Cyan -NoNewline
-    try {
-        go install -v "$RepoPath@latest" 2>$null
-        if ($LASTEXITCODE -eq 0) { Write-Host " OK" -ForegroundColor Green }
-        else { Write-Host " FAILED" -ForegroundColor Red }
+# ────────────────────────────── 1. Install Go ──────────────────────────────
+function Install-Go {
+    Write-Host "`n[+] Checking Go installation..." -ForegroundColor Cyan
+    if (Get-Command go -ErrorAction SilentlyContinue) {
+        Write-Host "Go is already installed: $(go version)" -ForegroundColor Green
+        return
     }
-    catch { Write-Host " ERROR" -ForegroundColor Red }
+
+    Write-Host "Go not found. Downloading latest version..." -ForegroundColor Yellow
+    $goUrl = "https://go.dev/dl/go1.24.2.windows-amd64.msi"   # Update if newer
+    $goMsi = "$env:TEMP\go.msi"
+
+    Invoke-WebRequest -Uri $goUrl -OutFile $goMsi
+    Start-Process msiexec.exe -ArgumentList "/i `"$goMsi`" /quiet /qn" -Wait
+    Remove-Item $goMsi -Force
+
+    # Refresh PATH
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Write-Host "Go installed successfully!" -ForegroundColor Green
 }
 
-$tools = @(
-    @{n="subfinder";   r="github.com/projectdiscovery/subfinder/v2/cmd/subfinder"}
-    @{n="amass";       r="github.com/owasp-amass/amass/v4/..."}
-    @{n="assetfinder"; r="github.com/tomnomnom/assetfinder"}
-    @{n="findomain";   r="github.com/Findomain/Findomain"}
-    @{n="httpx";       r="github.com/projectdiscovery/httpx/cmd/httpx"}
-    @{n="gau";         r="github.com/lc/gau/v2/cmd/gau"}
-    @{n="waymore";     r="github.com/xnl-h4ck3r/waymore"}
-    @{n="waybackurls"; r="github.com/tomnomnom/waybackurls"}
-    @{n="katana";      r="github.com/projectdiscovery/katana/cmd/katana"}
-    @{n="hakrawler";   r="github.com/hakluke/hakrawler"}
-    @{n="gospider";    r="github.com/jaeles-project/gospider"}
-    @{n="ffuf";        r="github.com/ffuf/ffuf/v2"}
-    @{n="nuclei";      r="github.com/projectdiscovery/nuclei/v3/cmd/nuclei"}
-    @{n="dalfox";      r="github.com/hahwul/dalfox/v2"}
-    @{n="tlsx";        r="github.com/projectdiscovery/tlsx/cmd/tlsx"}
-    @{n="dnsx";        r="github.com/projectdiscovery/dnsx/cmd/dnsx"}
-    @{n="arjun";       r="github.com/s0md3v/Arjun"}
-    @{n="paramspider"; r="github.com/devanshbatham/ParamSpider"}
-    @{n="gf";          r="github.com/tomnomnom/gf"}
-    @{n="x8";          r="github.com/Sh1Yo/x8"}
-    @{n="getJS";       r="github.com/003random/getJS"}
-    @{n="linkfinder";  r="github.com/GerbenJavado/LinkFinder"}
-    @{n="qsreplace";   r="github.com/tomnomnom/qsreplace"}
-)
+# ────────────────────────────── 2. Install Go Tools ──────────────────────────────
+function Install-GoTools {
+    Write-Host "`n[+] Installing Go-based tools..." -ForegroundColor Cyan
 
-foreach ($t in $tools) {
-    Install-Tool -ToolName $t.n -RepoPath $t.r
+    $tools = @(
+        "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
+        "github.com/OWASP/Amass/v3/...@latest",
+        "github.com/tomnomnom/assetfinder@latest",
+        "github.com/projectdiscovery/httpx/cmd/httpx@latest",
+        "github.com/lc/gau/v2/cmd/gau@latest",
+        "github.com/projectdiscovery/katana/cmd/katana@latest",
+        "github.com/hakluke/hakrawler@latest",
+        "github.com/jaeles-project/gospider@latest",
+        "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+        "github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
+        "github.com/projectdiscovery/tlsx/cmd/tlsx@latest",
+        "github.com/projectdiscovery/naabu/v2/cmd/naabu@latest",
+        "github.com/ffuf/ffuf/v2@latest",
+        "github.com/ImAyrix/fallparams@latest",
+        "github.com/hahwul/dalfox/v2@latest",
+        "github.com/tomnomnom/qsreplace@latest"
+    )
+
+    foreach ($tool in $tools) {
+        $name = ($tool -split '/')[-1] -replace '@.*',''
+        Write-Host "Installing $name ..." -ForegroundColor Gray -NoNewline
+        try {
+            go install -v $tool
+            Write-Host " ✓" -ForegroundColor Green
+        } catch {
+            Write-Host " ✗" -ForegroundColor Red
+        }
+    }
 }
 
-Write-Host "`nInstallation finished." -ForegroundColor Green
-Write-Host "Make sure $env:USERPROFILE\go\bin is in your PATH." -ForegroundColor White
-Write-Host "Verify: subfinder -version   amass version   httpx -version" -ForegroundColor Cyan
+# ────────────────────────────── 3. Install Python Tools ──────────────────────────────
+function Install-PythonTools {
+    Write-Host "`n[+] Installing Python-based tools..." -ForegroundColor Cyan
+
+    # Check Python
+    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        Write-Host "Python not found. Installing via winget..." -ForegroundColor Yellow
+        winget install Python.Python.3 -s winget --silent
+    }
+
+    $pipTools = @("arjun", "paramspider")
+
+    foreach ($tool in $pipTools) {
+        Write-Host "Installing $tool ..." -ForegroundColor Gray -NoNewline
+        pip install $tool -q
+        if (Get-Command $tool -ErrorAction SilentlyContinue) {
+            Write-Host " ✓" -ForegroundColor Green
+        } else {
+            Write-Host " ✗" -ForegroundColor Red
+        }
+    }
+}
+
+# ────────────────────────────── 4. Other Tools ──────────────────────────────
+function Install-OtherTools {
+    Write-Host "`n[+] Installing other tools..." -ForegroundColor Cyan
+
+    # waybackurls
+    Write-Host "Installing waybackurls..." -ForegroundColor Gray -NoNewline
+    go install github.com/tomnomnom/waybackurls@latest
+    Write-Host " ✓" -ForegroundColor Green
+
+    # gf
+    Write-Host "Installing gf..." -ForegroundColor Gray -NoNewline
+    go install github.com/tomnomnom/gf@latest
+    Write-Host " ✓" -ForegroundColor Green
+
+    # getJS
+    Write-Host "Installing getJS..." -ForegroundColor Gray -NoNewline
+    go install github.com/003random/getJS@latest
+    Write-Host " ✓" -ForegroundColor Green
+
+    # x8
+    Write-Host "Installing x8..." -ForegroundColor Gray -NoNewline
+    go install github.com/Sh1Yo/x8@latest
+    Write-Host " ✓" -ForegroundColor Green
+
+    # linkfinder
+    Write-Host "Installing linkfinder..." -ForegroundColor Gray -NoNewline
+    pip install linkfinder -q
+    Write-Host " ✓" -ForegroundColor Green
+
+    # TruffleHog
+    Write-Host "Installing trufflehog..." -ForegroundColor Gray -NoNewline
+    go install github.com/trufflesecurity/trufflehog/v3@latest
+    Write-Host " ✓" -ForegroundColor Green
+
+    # Gitleaks
+    Write-Host "Installing gitleaks..." -ForegroundColor Gray -NoNewline
+    winget install gitleaks -s winget --silent
+    Write-Host " ✓" -ForegroundColor Green
+}
+
+# ────────────────────────────── 5. Create Wordlist Directory ──────────────────────────────
+function Create-Wordlists {
+    Write-Host "`n[+] Creating wordlists directory..." -ForegroundColor Cyan
+    $wlDir = Join-Path $PSScriptRoot "wordlists"
+    New-Item -ItemType Directory -Force -Path $wlDir | Out-Null
+
+    Write-Host "Wordlists folder created at: $wlDir" -ForegroundColor Green
+    Write-Host "You can download common wordlists (dir-medium.txt, params-top.txt, etc.) manually." -ForegroundColor Gray
+}
+
+# ────────────────────────────── Main Execution ──────────────────────────────
+try {
+    Install-Go
+    Install-GoTools
+    Install-PythonTools
+    Install-OtherTools
+    Create-Wordlists
+
+    Write-Host "`n════════════════════════════════════════════════════════════════════════════" -ForegroundColor Green
+    Write-Host "All tools installed successfully!" -ForegroundColor Green
+    Write-Host "Add this to your recon script if not already there:" -ForegroundColor Cyan
+    Write-Host "`$env:PATH = `"`$PSScriptRoot;`$env:USERPROFILE\go\bin;C:\Program Files\Go\bin;`$env:PATH`"" -ForegroundColor White
+    Write-Host "`nYou can now run your Ultimate Recon Framework." -ForegroundColor Magenta
+    Write-Host "════════════════════════════════════════════════════════════════════════════" -ForegroundColor Green
+
+} catch {
+    Write-Host "An error occurred during installation: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+Read-Host "`nPress Enter to exit..."
